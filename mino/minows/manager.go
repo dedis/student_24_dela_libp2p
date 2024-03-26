@@ -4,7 +4,7 @@
 // Documentation Last Review: 06.10.2020
 //
 
-package minoch
+package minows
 
 import (
 	"sync"

@@ -1,47 +1,42 @@
-// This file implements the address abstraction for an in-memory implementation.
-// Each address uses a unique string to identify the instance it belongs to.
-//
-// Documentation Last Review: 06.10.2020
-//
+// This file implements the address abstraction for nodes communicating over distributed network using libp2p.
 
-package minoch
+package minows
 
 import (
+	ma "github.com/multiformats/go-multiaddr"
 	"go.dedis.ch/dela/mino"
 	"go.dedis.ch/dela/serde"
 )
 
-// Address is the representation of an identifier for minoch.
-//
 // - implements mino.Address
 type address struct {
-	orchestrator bool
-	id           string
+	// TODO orchestrator bool
+	multiaddr ma.Multiaddr
 }
 
-// Equal implements mino.Address. It returns true if both addresses are equal.
+// Equal implements mino.Address.
 func (a address) Equal(other mino.Address) bool {
 	addr, ok := other.(address)
-	return ok && addr.id == a.id
+	return ok && addr.multiaddr.Equal(a.multiaddr)
 }
 
-// MarshalText implements encoding.TextMarshaler. It returns the string
-// representation of an address.
-func (a address) MarshalText() ([]byte, error) {
-	return []byte(a.id), nil
-}
-
-// String implements fmt.Stringer. It returns the address as a string.
+// String implements fmt.Stringer.
 func (a address) String() string {
-	return a.id
+	return a.multiaddr.String()
 }
 
-// ConnectionType always returns plain connection
+// ConnectionType
+// TODO for now only WSS over HTTPS
 func (a address) ConnectionType() mino.AddressConnectionType {
-	return mino.ACTgRPCS
+	return mino.ACThttps
 }
 
-// AddressFactory is a factory to deserialize Minoch addresses.
+// MarshalText implements encoding.TextMarshaler.
+func (a address) MarshalText() ([]byte, error) {
+	return []byte(a.multiaddr.String()), nil
+}
+
+// AddressFactory is a factory to deserialize Minows addresses.
 //
 // - implements mino.AddressFactory
 type AddressFactory struct {
@@ -51,5 +46,9 @@ type AddressFactory struct {
 // FromText implements mino.AddressFactory. It returns an instance of an address
 // from a byte slice.
 func (f AddressFactory) FromText(text []byte) mino.Address {
-	return address{id: string(text)}
+	multiaddr, err := ma.NewMultiaddr(string(text))
+	if err != nil {
+		return address{}
+	}
+	return address{multiaddr: multiaddr}
 }

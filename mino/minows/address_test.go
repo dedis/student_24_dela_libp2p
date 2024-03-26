@@ -1,4 +1,4 @@
-package minoch
+package minows
 
 import (
 	"bytes"
@@ -52,7 +52,7 @@ func TestAddressFactory_FromText(t *testing.T) {
 	require.NoError(t, err)
 }
 
-//------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------
 // Utility functions
 
 type fakeAddress struct {

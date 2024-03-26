@@ -1,4 +1,4 @@
-package minoch
+package minows
 
 import (
 	"context"

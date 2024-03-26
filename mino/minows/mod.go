@@ -10,7 +10,7 @@
 // instance should drop the message.
 //
 // Documentation Last Review: 06.10.2020
-package minoch
+package minows
 
 import (
 	"fmt"

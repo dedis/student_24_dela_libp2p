@@ -3,7 +3,7 @@
 // Documentation Last Review: 06.10.2020
 //
 
-package minoch
+package minows
 
 import (
 	"context"
@@ -45,8 +45,10 @@ type RPC struct {
 // gathers their replies. The context is ignored in the scope of channel
 // communication as there is no blocking I/O. The response channel will receive
 // n responses for n players and be closed eventually.
-func (c RPC) Call(ctx context.Context,
-	req serde.Message, players mino.Players) (<-chan mino.Response, error) {
+func (c RPC) Call(
+	ctx context.Context,
+	req serde.Message, players mino.Players,
+) (<-chan mino.Response, error) {
 
 	data, err := req.Serialize(c.context)
 	if err != nil {
