@@ -6,11 +6,20 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 	"go.dedis.ch/dela/mino"
 	"go.dedis.ch/dela/serde"
+	"golang.org/x/xerrors"
 )
 
 // - implements mino.Address
 type address struct {
 	multiaddr ma.Multiaddr
+}
+
+func NewAddress(multiaddr string) (mino.Address, error) {
+	parsed, err := ma.NewMultiaddr(multiaddr)
+	if err != nil {
+		return nil, xerrors.Errorf("could not create address: %v", err)
+	}
+	return address{multiaddr: parsed}, nil
 }
 
 // Equal implements mino.Address.
