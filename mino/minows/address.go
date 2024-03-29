@@ -25,7 +25,6 @@ func NewAddress(multiaddr string) (mino.Address, error) {
 // Equal implements mino.Address.
 func (a address) Equal(other mino.Address) bool {
 	addr, ok := other.(address)
-	// TODO: handle multiaddr possibly nil
 	return ok && a.multiaddr.Equal(addr.multiaddr)
 }
 
@@ -36,7 +35,7 @@ func (a address) String() string {
 
 // ConnectionType implements mino.Address
 func (a address) ConnectionType() mino.AddressConnectionType {
-	return mino.ACTws // TODO ACTwss
+	return mino.ACTws
 }
 
 // MarshalText implements encoding.TextMarshaler.
