@@ -10,7 +10,7 @@ This package implements `Mino` interface using `go-libp2p`. More info is to be a
 - Traefik accepts incoming HTTPS connections from client nodes by establishing corresponding HTTP connections to the server node 
 - the same connections then upgrade to WebSocket Secure (WSS) between client node and Traefik, and WebSocket (WS) between Traefik and server node
 
-![](./architecture.png)
+![](resources/architecture.png)
 
 ## Connection Types 
 `minows` supports 2 types of connections between nodes:
