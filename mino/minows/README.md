@@ -16,3 +16,4 @@ This package implements `Mino` interface using `go-libp2p`. More info is to be a
 `minows` supports 2 types of connections between nodes:
 - WebSocket (WS): plaintext exchange without encryption, primarily used for local testing and development 
 - WebSocket Secure (WSS): encrypted WebSocket connections, used in production environments 
+
