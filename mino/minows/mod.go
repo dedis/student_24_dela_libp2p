@@ -13,6 +13,7 @@ import (
 )
 
 // Minows implements mino.Mino
+// TODO unit tests
 type Minows struct {
 	myAddr     Address
 	segments   []string
@@ -29,6 +30,7 @@ func NewMinows(listen, public, pid string) (*Minows, error) {
 	if err != nil {
 		return nil, xerrors.Errorf("could not parse listen addr: %v", err)
 	}
+	// TODO parse public & peer ID, then pass as arguments
 	myAddr, err := NewAddress(public, pid)
 	if err != nil {
 		return nil, xerrors.Errorf("could not create address: %v", err)
@@ -55,6 +57,7 @@ func (m *Minows) WithSegment(segment string) mino.Mino {
 	}
 
 	return &Minows{
+		// TODO host, etc
 		myAddr:   m.myAddr,
 		segments: append(m.segments, segment),
 	}
@@ -78,10 +81,9 @@ func (m *Minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 		return nil, xerrors.Errorf("already exists rpc: %s", name)
 	}
 	uri := strings.Join(append(m.segments, name), "/")
-	pid := protocol.ID(uri)
 	// TODO wrap mino.Handler in network.StreamHandler
 	// m.host.SetStreamHandler(pid, h)
 	return RPC{
-		pid: pid,
+		uri: protocol.ID(uri),
 	}, nil
 }

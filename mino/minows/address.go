@@ -5,6 +5,7 @@ package minows
 import (
 	"fmt"
 
+	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 	"go.dedis.ch/dela/mino"
 	"go.dedis.ch/dela/serde"
@@ -13,34 +14,41 @@ import (
 
 // Address - implements mino.Address
 type Address struct {
-	location ma.Multiaddr
-	identity ma.Multiaddr
+	location ma.Multiaddr // connection address
+	peerID   peer.ID
 }
 
-func NewAddress(multiaddr, pid string) (Address, error) {
+// TODO accept parsed multiaddr & peer ID as args
+func NewAddress(multiaddr, peerID string) (Address, error) {
 	location, err := ma.NewMultiaddr(multiaddr)
 	if err != nil {
 		return Address{}, xerrors.Errorf("could not parse multiaddr: %v", err)
 	}
-	identity, err := ma.NewMultiaddr(fmt.Sprintf("/p2p/%s", pid))
+
+	pid, err := peer.Decode(peerID)
 	if err != nil {
-		return Address{}, xerrors.Errorf("could not parse peer identity: %v", err)
+		return Address{}, xerrors.Errorf("could not parse peer ID: %v", err)
 	}
+
 	return Address{
 		location: location,
-		identity: identity,
+		peerID:   pid,
 	}, nil
+}
+
+func (a Address) PeerID() peer.ID {
+	return a.peerID
 }
 
 // Equal implements mino.Address.
 func (a Address) Equal(other mino.Address) bool {
 	o, ok := other.(Address)
-	return ok && a.location.Equal(o.location) && a.identity.Equal(o.identity)
+	return ok && a.location.Equal(o.location) && a.peerID == o.peerID
 }
 
 // String implements fmt.Stringer.
 func (a Address) String() string {
-	return a.location.Encapsulate(a.identity).String()
+	return fmt.Sprintf("%s/p2p/%s", a.location.String(), a.peerID)
 }
 
 // ConnectionType implements mino.Address
@@ -51,7 +59,11 @@ func (a Address) ConnectionType() mino.AddressConnectionType {
 
 // MarshalText implements encoding.TextMarshaler.
 func (a Address) MarshalText() ([]byte, error) {
-	return []byte(a.location.Encapsulate(a.identity).String()), nil
+	p2p, err := ma.NewMultiaddr(fmt.Sprintf("/p2p/%s", a.peerID))
+	if err != nil {
+		return nil, xerrors.Errorf("could not marshal identity: %v", err)
+	}
+	return []byte(a.location.Encapsulate(p2p).String()), nil
 }
 
 // addressFactory is a factory to deserialize Minows addresses.
@@ -66,12 +78,22 @@ type addressFactory struct {
 func (f addressFactory) FromText(text []byte) mino.Address {
 	full, err := ma.NewMultiaddr(string(text))
 	if err != nil {
-		// TODO log error
-		return Address{}
+		// todo log error
+		return nil
 	}
-	location, identity := ma.SplitLast(full)
+	location, p2p := ma.SplitLast(full)
+	pid, err := p2p.ValueForProtocol(ma.P_P2P)
+	if err != nil {
+		// todo log error
+		return nil
+	}
+	peerID, err := peer.Decode(pid)
+	if err != nil {
+		// todo log error
+		return nil
+	}
 	return Address{
 		location: location,
-		identity: identity,
+		peerID:   peerID,
 	}
 }
