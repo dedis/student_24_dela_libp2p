@@ -11,7 +11,7 @@ This package implements `Mino` interface using `go-libp2p`. More info is to be a
 
 - nodes are running in local networks with private addresses (e.g. 172.24.0.6)
 - nodes listen on port 8080 for HTTP connections (:8080)
-- Traefik is configured on each node to listen on port 443 for HTTPS and on port 80 for HTTP connections to the public hostname (e.g. p2p-1.dela-1.c4dt.org:443) 
+- Traefik is configured on each node to listen on port 443 for HTTPS and on port 8080 for HTTP connections to the public hostname (e.g. p2p-1.dela-1.c4dt.org:443) 
 - Traefik accepts incoming HTTPS or HTTP connections from client nodes and establishes corresponding HTTP connections to server nodes
 - the same connections then upgrade to WebSocket Secure (WSS) or WebSocket (WS) between the client node and Traefik, and WebSocket (WS) between Traefik and the server node
 
