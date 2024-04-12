@@ -30,6 +30,8 @@ func (r RPC) Call(
 ) (<-chan mino.Response, error) {
 	// TODO assumption: peer store already filled with 'players' Peer IDs & multi-addresses
 
+	// TODO check players nil or empty
+
 	// dial participants iteratively in parallel
 	var wg sync.WaitGroup
 	iter := players.AddressIterator()
@@ -56,12 +58,17 @@ func (r RPC) Call(
 	}
 	// wait for responses & close response channel
 	go func() {
+		// TODO context can be used to cancel the protocol earlier if necessary. When the context is done, the connection to other peers will be shutdown and resources cleaned up
 		wg.Wait()
 		close(responses)
 	}()
 	return responses, nil
 }
 
+// Stream
+// - context defines when the protocol is done, and it should therefore always be canceled at some point.
+// - When it arrives, all the connections are shut down and the resources are cleaned up
+// - orchestrator of a protocol will contact one of the participants which will be the root for the routing algorithm (i.e. gateway?). It will then relay the messages according to the routing algorithm and create relays to other peers when necessary
 func (r RPC) Stream(ctx context.Context, players mino.Players) (mino.Sender, mino.Receiver, error) {
 	// TODO implement me
 	panic("implement me")
@@ -85,7 +92,7 @@ func (r RPC) call(ctx context.Context, req serde.Message, target Address) (serde
 		return nil, xerrors.Errorf("could not send request: %v", err)
 	}
 	// TODO verify
-	var in []byte
+	in := make([]byte, MaxMessageSize)
 	_, err = stream.Read(in)
 	if err != nil {
 		return nil, xerrors.Errorf("could not receive reply: %v", err)
