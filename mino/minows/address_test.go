@@ -6,6 +6,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TODO fix tests last after finalizing Address type & before raising PR
+
 func TestAddress_New(t *testing.T) {
 	tests := map[string]struct {
 		multiaddr string

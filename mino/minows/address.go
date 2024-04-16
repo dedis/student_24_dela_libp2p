@@ -15,40 +15,29 @@ import (
 // Address - implements mino.Address
 type Address struct {
 	location ma.Multiaddr // connection address
-	peerID   peer.ID
+	identity peer.ID
 }
 
-// TODO accept parsed multiaddr & peer ID as args
-func NewAddress(multiaddr, peerID string) (Address, error) {
-	location, err := ma.NewMultiaddr(multiaddr)
-	if err != nil {
-		return Address{}, xerrors.Errorf("could not parse multiaddr: %v", err)
-	}
-
-	pid, err := peer.Decode(peerID)
-	if err != nil {
-		return Address{}, xerrors.Errorf("could not parse peer ID: %v", err)
-	}
-
+func NewAddress(location ma.Multiaddr, id peer.ID) (Address, error) {
 	return Address{
 		location: location,
-		peerID:   pid,
+		identity: id,
 	}, nil
 }
 
 func (a Address) PeerID() peer.ID {
-	return a.peerID
+	return a.identity
 }
 
 // Equal implements mino.Address.
 func (a Address) Equal(other mino.Address) bool {
 	o, ok := other.(Address)
-	return ok && a.location.Equal(o.location) && a.peerID == o.peerID
+	return ok && a.location.Equal(o.location) && a.identity == o.identity
 }
 
 // String implements fmt.Stringer.
 func (a Address) String() string {
-	return fmt.Sprintf("%s/p2p/%s", a.location.String(), a.peerID)
+	return fmt.Sprintf("%s/p2p/%s", a.location.String(), a.identity)
 }
 
 // ConnectionType implements mino.Address
@@ -59,7 +48,7 @@ func (a Address) ConnectionType() mino.AddressConnectionType {
 
 // MarshalText implements encoding.TextMarshaler.
 func (a Address) MarshalText() ([]byte, error) {
-	p2p, err := ma.NewMultiaddr(fmt.Sprintf("/p2p/%s", a.peerID))
+	p2p, err := ma.NewMultiaddr(fmt.Sprintf("/p2p/%s", a.identity))
 	if err != nil {
 		return nil, xerrors.Errorf("could not marshal identity: %v", err)
 	}
@@ -82,18 +71,18 @@ func (f addressFactory) FromText(text []byte) mino.Address {
 		return nil
 	}
 	location, p2p := ma.SplitLast(full)
-	pid, err := p2p.ValueForProtocol(ma.P_P2P)
+	value, err := p2p.ValueForProtocol(ma.P_P2P)
 	if err != nil {
 		// todo log error
 		return nil
 	}
-	peerID, err := peer.Decode(pid)
+	id, err := peer.Decode(value)
 	if err != nil {
 		// todo log error
 		return nil
 	}
 	return Address{
 		location: location,
-		peerID:   peerID,
+		identity: id,
 	}
 }
