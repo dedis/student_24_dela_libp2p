@@ -71,10 +71,6 @@ func loadPrivKey(path string) (crypto.PrivKey, error) {
 // TODO simplify with Copilot: anonymous class equivalent?
 type generator struct{}
 
-func newGenerator() loader.Generator {
-	return generator{}
-}
-
 func (g generator) Generate() ([]byte, error) {
 	private, _, err := crypto.GenerateEd25519Key(rand.Reader)
 	if err != nil {
@@ -87,4 +83,8 @@ func (g generator) Generate() ([]byte, error) {
 	}
 
 	return bytes, nil
+}
+
+func newGenerator() loader.Generator {
+	return generator{}
 }
