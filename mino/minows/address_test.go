@@ -8,9 +8,11 @@ import (
 )
 
 func TestAddress_New(t *testing.T) {
+	// TODO consolidate New() and export methods such as String(),
+	//  MarshalText() to use the same set of 'tests' table
 	tests := map[string]struct {
 		in  string
-		err bool
+		err bool // expect generic error (no specific error type/message)
 	}{
 		"url (not multiaddr)": {in: "example.com", err: true},
 		"all interface":       {in: "/ip4/0.0.0.0/tcp/80", err: false},
@@ -20,9 +22,9 @@ func TestAddress_New(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			// no exported fields on address type, ignored
-			if _, err := NewAddress(tt.in); tt.err {
-				// returns any error when failed to create address
+			// no exported fields on address type, ignore return value
+			_, err := NewAddress(tt.in)
+			if tt.err {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
@@ -92,7 +94,7 @@ func TestAddressFactory_FromText(t *testing.T) {
 	}
 }
 
-// ------------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // Utility functions
 
 type fakeAddress struct {

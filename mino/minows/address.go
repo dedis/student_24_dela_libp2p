@@ -1,4 +1,5 @@
-// This file implements the address abstraction for nodes communicating over distributed network using libp2p.
+// This file implements the address abstraction for nodes communicating over
+// distributed network using libp2p.
 
 package minows
 
