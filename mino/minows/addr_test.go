@@ -174,20 +174,16 @@ func TestAddressFactory_FromText(t *testing.T) {
 
 func TestAddressFactory_FromText_invalid(t *testing.T) {
 	tests := map[string]struct {
-		in  []byte
-		out Address
+		in []byte
 	}{
 		"invalid text": {
-			in:  []byte("invalid"),
-			out: Address{},
+			in: []byte("invalid"),
 		},
 		"missing location": {
-			in:  []byte("/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
-			out: Address{},
+			in: []byte("/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
 		},
 		"missing identity": {
-			in:  []byte(AddrLocalhost),
-			out: Address{},
+			in: []byte(AddrLocalhost),
 		},
 	}
 
@@ -200,13 +196,11 @@ func TestAddressFactory_FromText_invalid(t *testing.T) {
 
 			result := factory.FromText(tt.in)
 
-			require.Equal(t, tt.out, result)
+			require.Nil(t, result)
 		})
 	}
 }
 
-// convenience function to test Address methods that assume creation by
-// NewAddress()
 func mustCreateAddress(location string, identity string) Address {
 	addr, err := NewAddress(mustCreateMultiaddress(location), mustCreatePeerID(identity))
 	if err != nil {

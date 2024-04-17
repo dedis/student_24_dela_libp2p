@@ -13,7 +13,8 @@ import (
 
 const protocolP2P = "/p2p/"
 
-// Address should not be instantiated via struct literal
+// Address
+// should not be instantiated via struct literal
 type Address struct {
 	// TODO may export both fields to populate peer store after parsing
 	//  addresses of all peers
@@ -74,22 +75,22 @@ func (f addressFactory) FromText(text []byte) mino.Address {
 	loc, id, found := strings.Cut(string(text), protocolP2P)
 	if !found {
 		// todo log error
-		return Address{}
+		return nil
 	}
 	location, err := ma.NewMultiaddr(loc)
 	if err != nil {
 		// todo log error
-		return Address{}
+		return nil
 	}
 	identity, err := peer.Decode(id)
 	if err != nil {
 		// todo log error
-		return Address{}
+		return nil
 	}
 	addr, err := NewAddress(location, identity)
 	if err != nil {
 		// todo log error
-		return Address{}
+		return nil
 	}
 	return addr
 }
