@@ -43,16 +43,16 @@ func (a address) MarshalText() ([]byte, error) {
 	return []byte(a.multiaddr.String()), nil
 }
 
-// addressFactory is a factory to deserialize Minows addresses.
+// AddressFactory is a factory to deserialize Minows addresses.
 //
 // - implements mino.AddressFactory
-type addressFactory struct {
+type AddressFactory struct {
 	serde.Factory
 }
 
 // FromText implements mino.AddressFactory. It returns an instance of an address
 // from a byte slice.
-func (f addressFactory) FromText(text []byte) mino.Address {
+func (f AddressFactory) FromText(text []byte) mino.Address {
 	multiaddr, err := ma.NewMultiaddr(string(text))
 	if err != nil {
 		return address{}

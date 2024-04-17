@@ -81,7 +81,7 @@ func TestAddress_MarshalText(t *testing.T) {
 }
 
 func TestAddressFactory_FromText(t *testing.T) {
-	factory := addressFactory{}
+	factory := AddressFactory{}
 	for name, tt := range testsMarshalText {
 		t.Run(name, func(t *testing.T) {
 			expected, _ := NewAddress(tt.in)
