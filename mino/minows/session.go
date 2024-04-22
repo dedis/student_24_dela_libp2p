@@ -62,6 +62,7 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 	return errs
 }
 
+// todo move to rpc.go
 type envelope struct {
 	sender  address
 	message serde.Message
