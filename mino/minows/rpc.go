@@ -39,51 +39,51 @@ type rpc struct {
 // todo refactor to use openStreams()?
 // unicast request-response
 // Returns an error if any player address is invalid.
-// Otherwise returns a response channel 1) filled with replies or errors if
-// the message could not be sent 2) that is closed after having
-// either received a reply or errored, or the context is done.
+// Otherwise returns a response channel 1) filled with replies or errors in
+// the network from each player 2) closed after each player has
+// replied or errored, or the context is done.
 func (r rpc) Call(
 	ctx context.Context,
 	req serde.Message,
 	players mino.Players,
 ) (<-chan mino.Response, error) {
 	// TODO assumption: peer store already filled with 'players' Peer IDs & multi-addresses
-
-	// TODO check players nil or empty
-
-	// dial participants iteratively in parallel
-	var wg sync.WaitGroup
-	iter := players.AddressIterator()
-
-	responses := make(chan mino.Response, players.Len())
-
-	for iter.HasNext() {
-		next := iter.GetNext()
-		player, ok := next.(address)
-		if !ok {
-			// todo validate all addresses first before making any call()
-			return nil, xerrors.Errorf("invalid address type: %T", next)
-		}
-		wg.Add(1)
-		go func(player address) {
-			defer wg.Done()
-
-			reply, err := r.call(ctx, req, player)
-			if err != nil {
-				responses <- mino.NewResponseWithError(player, err)
-				return
-			}
-			responses <- mino.NewResponse(player, reply)
-		}(player) // good practice to capture loop variable (though not the case here)
+	// quit unless all player addresses are valid
+	addrs, err := toAddresses(players)
+	if err != nil {
+		return nil, err
 	}
-	// wait for responses & close response channel
+	results := openStreams(ctx, r.mino.host, r.uri, addrs)
+	// unicast a request-response to each player concurrently
+	// as streams are established
+	responses := make(chan mino.Response, len(addrs))
+	var wg sync.WaitGroup
+	for range addrs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case res := <-results: // fan-out
+				if res.err != nil {
+					responses <- mino.NewResponseWithError(res.remote, res.err)
+					return
+				}
+				err := send(res.stream, req, r.msgContext)
+				if err != nil {
+					responses <- mino.NewResponseWithError(res.remote, err)
+					return
+				}
+				reply := receive(res.stream, r.msgFactory, r.msgContext)
+				if err != nil {
+					responses <- mino.NewResponseWithError(reply.sender, reply.err)
+					return
+				}
+				responses <- mino.NewResponse(reply.sender, reply.message)
+			case <-ctx.Done(): // let goroutine exit if context is done
+			}
+		}()
+	}
 	go func() {
-		// TODO context can be used to cancel the protocol earlier if
-		//  necessary. When the context is done,
-		//  the connection to other peers will be shutdown and resources
-		//  cleaned up (DELA Doc)
-		//  TODO: how to handle response channel in this case?
-		//   close channel after adding e.g. ErrCancelledBeforeComplete?
 		wg.Wait()
 		close(responses)
 	}()
@@ -100,12 +100,14 @@ func (r rpc) Call(
 // It will then relay the messages according to the routing algorithm and
 // create relays to other peers when necessary (DELA Doc but ignored)
 func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, mino.Receiver, error) {
+	// TODO assumption: peer store already filled with 'players' Peer IDs & multi-addresses
+	// quit unless all player addresses are valid
 	addrs, err := toAddresses(players)
 	if err != nil {
 		return nil, nil, err
 	}
-	results := openStreams(ctx, r, addrs)
-	// quit unless all streams are established successfully
+	results := openStreams(ctx, r.mino.host, r.uri, addrs)
+	// wait till all streams are established successfully or quit
 	streams := make(map[peer.ID]network.Stream)
 	for res := range results {
 		if res.err != nil {
@@ -118,39 +120,6 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 		return nil, nil, xerrors.Errorf("could not start stream session: %v", err)
 	}
 	return sess, sess, nil
-}
-
-func (r rpc) call(ctx context.Context, req serde.Message, player address) (serde.Message, error) {
-	// open stream (multiplexed onto an existing/new connection)
-	// todo create child context with cancel
-	// todo cancel child context when done before resetting stream
-	stream, err := r.host.NewStream(ctx, player.PeerID(), r.uri)
-	if err != nil {
-		return nil, xerrors.Errorf("could not open stream: %v", err)
-	}
-	defer stream.Reset() // discard immediately after ad-hoc use (1 RW)
-	// send request & wait for response
-	// TODO verify, reuse send()
-	out, err := req.Serialize(r.msgContext)
-	if err != nil {
-		return nil, xerrors.Errorf("could not serialize request: %v", err)
-	}
-	_, err = stream.Write(out) // blocking
-	if err != nil {
-		return nil, xerrors.Errorf("could not send request: %v", err)
-	}
-	// TODO verify, reuse receive()
-	in := make([]byte, MaxMessageSize)
-	_, err = stream.Read(in)
-	if err != nil {
-		return nil, xerrors.Errorf("could not receive reply: %v", err)
-	}
-	// TODO unwrap 'resp' Message from Response
-	reply, err := r.msgFactory.Deserialize(r.msgContext, in)
-	if err != nil {
-		return nil, xerrors.Errorf("could not deserialize reply: %v", err)
-	}
-	return reply, nil
 }
 
 // todo take []address instead of mino.Players
@@ -185,7 +154,6 @@ func toAddresses(players mino.Players) ([]address, error) {
 	// todo extract method
 	var addrs []address
 	iter := players.AddressIterator()
-	// quit unless all player addresses are valid
 	for iter.HasNext() {
 		next := iter.GetNext()
 		addr, ok := next.(address)
@@ -204,17 +172,16 @@ type result struct {
 }
 
 // todo may be reusable by rpc.Call()
-func openStreams(ctx context.Context, rpc rpc,
+func openStreams(ctx context.Context, h host.Host, uri protocol.ID,
 	addrs []address) chan result {
-	// dial participants concurrently
+	// dial each participant concurrently
 	var wg sync.WaitGroup
 	results := make(chan result, len(addrs))
 	for _, addr := range addrs {
 		wg.Add(1)
 		go func(addr address) {
 			defer wg.Done()
-			stream, err := rpc.mino.host.NewStream(ctx, addr.identity,
-				rpc.uri)
+			stream, err := h.NewStream(ctx, addr.identity, uri)
 			// collect established stream or error
 			if err != nil {
 				results <- result{
