@@ -100,7 +100,20 @@ func (r rpc) Call(
 // It will then relay the messages according to the routing algorithm and
 // create relays to other peers when necessary (DELA Doc but ignored)
 func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, mino.Receiver, error) {
-	sess, err := r.createSession(ctx, players)
+	addrs, err := toAddresses(players)
+	if err != nil {
+		return nil, nil, err
+	}
+	results := openStreams(ctx, r, addrs)
+	// quit unless all streams are established successfully
+	streams := make(map[peer.ID]network.Stream)
+	for res := range results {
+		if res.err != nil {
+			return nil, nil, res.err
+		}
+		streams[res.remote.identity] = res.stream
+	}
+	sess, err := r.createSession(ctx, streams)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("could not start stream session: %v", err)
 	}
@@ -142,29 +155,7 @@ func (r rpc) call(ctx context.Context, req serde.Message, player address) (serde
 
 // todo take []address instead of mino.Players
 func (r rpc) createSession(ctx context.Context,
-	players mino.Players) (*session, error) {
-	// todo extract method
-	var addrs []address
-	iter := players.AddressIterator()
-	// quit unless all player addresses are valid
-	for iter.HasNext() {
-		next := iter.GetNext()
-		addr, ok := next.(address)
-		if !ok {
-			return nil, xerrors.Errorf("invalid address type: %T", next)
-		}
-		addrs = append(addrs, addr)
-	}
-
-	results := openStreams(ctx, r, addrs)
-	// quit unless all streams are established successfully
-	streams := make(map[peer.ID]network.Stream)
-	for res := range results {
-		if res.err != nil {
-			return nil, res.err
-		}
-		streams[res.remote.identity] = res.stream
-	}
+	streams map[peer.ID]network.Stream) (*session, error) {
 	// listen for incoming messages till context is done
 	in := make(chan envelope)
 	for _, stream := range streams {
@@ -188,7 +179,22 @@ func (r rpc) createSession(ctx context.Context,
 		rpc:     r,
 		in:      in,
 	}, nil
+}
 
+func toAddresses(players mino.Players) ([]address, error) {
+	// todo extract method
+	var addrs []address
+	iter := players.AddressIterator()
+	// quit unless all player addresses are valid
+	for iter.HasNext() {
+		next := iter.GetNext()
+		addr, ok := next.(address)
+		if !ok {
+			return nil, xerrors.Errorf("invalid address type: %T", next)
+		}
+		addrs = append(addrs, addr)
+	}
+	return addrs, nil
 }
 
 type result struct {
