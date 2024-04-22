@@ -2,6 +2,7 @@ package minows
 
 import (
 	"fmt"
+	"go.dedis.ch/dela"
 	"strings"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -14,26 +15,22 @@ import (
 const protocolP2P = "/p2p/"
 
 type address struct {
-	location ma.Multiaddr // connection address
-	identity peer.ID
+	location ma.Multiaddr // required
+	identity peer.ID      // required
 }
 
-// todo remove, unnecessary, construct via struct literal more convenient
-func newAddress(location ma.Multiaddr, id peer.ID) (address, error) {
+// newAddress creates a new address that must have a valid `location` and
+// `identity`.
+func newAddress(location ma.Multiaddr, identity peer.ID) (address, error) {
 	// validate
-	if location == nil || id.String() == "" {
+	if location == nil || identity.String() == "" {
 		return address{}, xerrors.New("address must have location and identity")
 	}
 
 	return address{
 		location: location,
-		identity: id,
+		identity: identity,
 	}, nil
-}
-
-// todo remove, export identity instead
-func (a address) PeerID() peer.ID {
-	return a.identity
 }
 
 // Equal implements mino.Address.
@@ -70,24 +67,26 @@ type addressFactory struct {
 // from a byte slice.
 // Returns nil if fails
 func (f addressFactory) FromText(text []byte) mino.Address {
-	loc, id, found := strings.Cut(string(text), protocolP2P)
+	str := string(text)
+	loc, id, found := strings.Cut(str, protocolP2P)
 	if !found {
-		// todo log error
+		dela.Logger.Err(xerrors.Errorf("%s misses p2p protocol", str))
 		return nil
 	}
 	location, err := ma.NewMultiaddr(loc)
 	if err != nil {
-		// todo log error
+		dela.Logger.Err(xerrors.Errorf("could not parse %s as multiaddress",
+			loc))
 		return nil
 	}
 	identity, err := peer.Decode(id)
 	if err != nil {
-		// todo log error
+		dela.Logger.Err(xerrors.Errorf("could not decode %s as peer ID", id))
 		return nil
 	}
 	addr, err := newAddress(location, identity)
 	if err != nil {
-		// todo log error
+		dela.Logger.Err(xerrors.Errorf("could not create address: %v", err))
 		return nil
 	}
 	return addr

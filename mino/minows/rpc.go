@@ -225,9 +225,13 @@ type envelope struct {
 
 func receive(stream network.Stream,
 	f serde.Factory, c serde.Context) envelope {
-	sender := address{
-		location: stream.Conn().RemoteMultiaddr(),
-		identity: stream.Conn().RemotePeer(),
+	sender, err := newAddress(
+		stream.Conn().RemoteMultiaddr(),
+		stream.Conn().RemotePeer())
+	if err != nil {
+		return envelope{err: xerrors.Errorf(
+			"unexpected: could not create sender address: %v",
+			err)}
 	}
 	buffer := make([]byte, MaxMessageSize)
 	n, err := stream.Read(buffer)
