@@ -20,17 +20,14 @@ const MaxMessageSize = 1e9 // TODO verify
 type rpc struct {
 	uri  protocol.ID
 	mino *minows
-	host host.Host // todo replace with field minows and get by mino.Host()
 	// TODO handler mino.Handler
 	factory serde.Factory
-	context serde.Context // TODO assign somewhere
+	context serde.Context
 }
 
 // Call
-// todo refactor to use openStreams()?
-// unicast request-response
 // Returns an error if any player address is invalid.
-// Otherwise returns a response channel 1) filled with replies or errors in
+// Otherwise, returns a response channel 1) filled with replies or errors in
 // the network from each player 2) closed after each player has
 // replied or errored, or the context is done.
 func (r rpc) Call(
@@ -113,7 +110,6 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 	return sess, sess, nil
 }
 
-// todo take []address instead of mino.Players
 func (r rpc) createSession(ctx context.Context,
 	streams map[peer.ID]network.Stream) (*session, error) {
 	// listen for incoming messages till context is done
@@ -142,7 +138,6 @@ func (r rpc) createSession(ctx context.Context,
 }
 
 func toAddresses(players mino.Players) ([]address, error) {
-	// todo extract method
 	var addrs []address
 	iter := players.AddressIterator()
 	for iter.HasNext() {
@@ -162,7 +157,6 @@ type result struct {
 	err    error
 }
 
-// todo may be reusable by rpc.Call()
 func openStreams(ctx context.Context, h host.Host, uri protocol.ID,
 	addrs []address) chan result {
 	// dial each participant concurrently
