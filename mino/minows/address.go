@@ -14,8 +14,6 @@ import (
 const protocolP2P = "/p2p/"
 
 type address struct {
-	// TODO may export both fields to populate peer store after parsing
-	//  addresses of all peers
 	location ma.Multiaddr // connection address
 	identity peer.ID
 }

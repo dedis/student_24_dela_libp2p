@@ -16,7 +16,7 @@ import (
 type session struct {
 	streams map[peer.ID]network.Stream // read-only after initialization
 	rpc     rpc
-	in      chan envelope // todo unbuffered, check no blocking
+	in      chan envelope
 }
 
 func (s session) Recv(ctx context.Context) (mino.Address, serde.Message, error) {
@@ -60,11 +60,4 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 		close(errs)
 	}()
 	return errs
-}
-
-// todo move to rpc.go
-type envelope struct {
-	sender  address
-	message serde.Message
-	err     error
 }

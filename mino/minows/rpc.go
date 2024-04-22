@@ -126,7 +126,7 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 func (r rpc) createSession(ctx context.Context,
 	streams map[peer.ID]network.Stream) (*session, error) {
 	// listen for incoming messages till context is done
-	in := make(chan envelope)
+	in := make(chan envelope) // unbuffered
 	for _, stream := range streams {
 		go func(stream network.Stream) {
 			for {
@@ -205,6 +205,24 @@ func openStreams(ctx context.Context, h host.Host, uri protocol.ID,
 	return results
 }
 
+func send(stream network.Stream, msg serde.Message, c serde.Context) error {
+	data, err := msg.Serialize(c)
+	if err != nil {
+		return xerrors.Errorf("could not serialize message: %v", err)
+	}
+	_, err = stream.Write(data)
+	if err != nil {
+		return xerrors.Errorf("could not write to stream: %v", err)
+	}
+	return nil
+}
+
+type envelope struct {
+	sender  address
+	message serde.Message
+	err     error
+}
+
 func receive(stream network.Stream,
 	f serde.Factory, c serde.Context) envelope {
 	sender := address{
@@ -225,16 +243,4 @@ func receive(stream network.Stream,
 			err)}
 	}
 	return envelope{sender: sender, message: msg}
-}
-
-func send(stream network.Stream, msg serde.Message, c serde.Context) error {
-	data, err := msg.Serialize(c)
-	if err != nil {
-		return xerrors.Errorf("could not serialize message: %v", err)
-	}
-	_, err = stream.Write(data)
-	if err != nil {
-		return xerrors.Errorf("could not write to stream: %v", err)
-	}
-	return nil
 }
