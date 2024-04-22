@@ -140,8 +140,10 @@ func (r rpc) call(ctx context.Context, req serde.Message, player address) (serde
 	return reply, nil
 }
 
+// todo take []address instead of mino.Players
 func (r rpc) createSession(ctx context.Context,
 	players mino.Players) (*session, error) {
+	// todo extract method
 	var addrs []address
 	iter := players.AddressIterator()
 	// quit unless all player addresses are valid
@@ -153,31 +155,28 @@ func (r rpc) createSession(ctx context.Context,
 		}
 		addrs = append(addrs, addr)
 	}
-	streams, errs := openStreams(ctx, r, addrs)
+
+	results := openStreams(ctx, r, addrs)
 	// quit unless all streams are established successfully
-	for err := range errs {
-		if err != nil {
-			return nil, err
+	streams := make(map[peer.ID]network.Stream)
+	for res := range results {
+		if res.err != nil {
+			return nil, res.err
 		}
+		streams[res.remote.identity] = res.stream
 	}
-	// store streams for easy access
-	streamsById := make(map[peer.ID]network.Stream)
+	// listen for incoming messages till context is done
 	in := make(chan envelope)
-	for stream := range streams {
-		id := stream.Conn().RemotePeer()
-		streamsById[id] = stream
-		// listen for incoming messages
+	for _, stream := range streams {
 		go func(stream network.Stream) {
 			for {
-				env := receive(stream, r.msgFactory, r.msgContext)
 				select {
-				case in <- env: // fan-in
-				case <-ctx.Done(): // stop listening when context is done
+				case in <- receive(stream, r.msgFactory, r.msgContext): // fan-in
+				case <-ctx.Done():
 					return
 				}
 			}
 		}(stream)
-
 	}
 	// close incoming message channel to signal session ended
 	go func() {
@@ -185,32 +184,41 @@ func (r rpc) createSession(ctx context.Context,
 		close(in)
 	}()
 	return &session{
-		streams: streamsById,
+		streams: streams,
 		rpc:     r,
 		in:      in,
 	}, nil
 
 }
 
+type result struct {
+	remote address
+	stream network.Stream
+	err    error
+}
+
 // todo may be reusable by rpc.Call()
 func openStreams(ctx context.Context, rpc rpc,
-	addrs []address) (chan network.Stream, chan error) {
+	addrs []address) chan result {
 	// dial participants concurrently
 	var wg sync.WaitGroup
-	streams := make(chan network.Stream, len(addrs))
-	errs := make(chan error, len(addrs))
+	results := make(chan result, len(addrs))
 	for _, addr := range addrs {
 		wg.Add(1)
 		go func(addr address) {
 			defer wg.Done()
 			stream, err := rpc.mino.host.NewStream(ctx, addr.identity,
 				rpc.uri)
+			// collect established stream or error
 			if err != nil {
-				errs <- xerrors.Errorf("could not open stream: %v", err)
+				results <- result{
+					remote: addr,
+					err:    xerrors.Errorf("could not open stream: %v", err),
+				}
 				return
 			}
-			streams <- stream
-			go func() { // free established stream when context is done
+			results <- result{remote: addr, stream: stream}
+			go func() { // free established stream
 				<-ctx.Done()
 				stream.Reset()
 			}()
@@ -219,10 +227,9 @@ func openStreams(ctx context.Context, rpc rpc,
 	// close output channels when no more pending streams
 	go func() {
 		wg.Wait()
-		close(streams)
-		close(errs)
+		close(results)
 	}()
-	return streams, errs
+	return results
 }
 
 func receive(stream network.Stream,
