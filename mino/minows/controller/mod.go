@@ -47,7 +47,9 @@ func (c controller) OnStart(flags cli.Flags, injector node.Injector) error {
 
 func (c controller) OnStop(injector node.Injector) error {
 	// TODO close any passed contexts, reset any ongoing streams
-	// TODO shut down host
+	// TODO To stop/shutdown the returned libp2p node,
+	//  the user needs to cancel the passed context (?)
+	//  and call `Close` on the returned Host.
 
 	// TODO implement me
 	panic("implement me")

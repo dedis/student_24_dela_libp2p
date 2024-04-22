@@ -13,51 +13,50 @@ import (
 
 const protocolP2P = "/p2p/"
 
-// Address
-// should not be instantiated via struct literal
-type Address struct {
+type address struct {
 	// TODO may export both fields to populate peer store after parsing
 	//  addresses of all peers
 	location ma.Multiaddr // connection address
 	identity peer.ID
 }
 
-func NewAddress(location ma.Multiaddr, id peer.ID) (Address, error) {
+// todo remove, unnecessary, construct via struct literal more convenient
+func newAddress(location ma.Multiaddr, id peer.ID) (address, error) {
 	// validate
 	if location == nil || id.String() == "" {
-		return Address{}, xerrors.New("address must have location and identity")
+		return address{}, xerrors.New("address must have location and identity")
 	}
 
-	return Address{
+	return address{
 		location: location,
 		identity: id,
 	}, nil
 }
 
 // todo remove, export identity instead
-func (a Address) PeerID() peer.ID {
+func (a address) PeerID() peer.ID {
 	return a.identity
 }
 
 // Equal implements mino.Address.
-func (a Address) Equal(other mino.Address) bool {
-	o, ok := other.(Address)
+func (a address) Equal(other mino.Address) bool {
+	o, ok := other.(address)
 	return ok && a.location.Equal(o.location) && a.identity == o.identity
 }
 
 // String implements fmt.Stringer.
-func (a Address) String() string {
+func (a address) String() string {
 	return fmt.Sprintf("%s%s%s", a.location, protocolP2P, a.identity)
 }
 
 // ConnectionType implements mino.Address
-func (a Address) ConnectionType() mino.AddressConnectionType {
+func (a address) ConnectionType() mino.AddressConnectionType {
 	// TODO implement
 	panic("not implemented")
 }
 
 // MarshalText implements encoding.TextMarshaler.
-func (a Address) MarshalText() ([]byte, error) {
+func (a address) MarshalText() ([]byte, error) {
 	return []byte(fmt.Sprintf("%s%s%s", a.location, protocolP2P, a.identity)),
 		nil
 }
@@ -71,6 +70,7 @@ type addressFactory struct {
 
 // FromText implements mino.AddressFactory. It returns an instance of an address
 // from a byte slice.
+// Returns nil if fails
 func (f addressFactory) FromText(text []byte) mino.Address {
 	loc, id, found := strings.Cut(string(text), protocolP2P)
 	if !found {
@@ -87,7 +87,7 @@ func (f addressFactory) FromText(text []byte) mino.Address {
 		// todo log error
 		return nil
 	}
-	addr, err := NewAddress(location, identity)
+	addr, err := newAddress(location, identity)
 	if err != nil {
 		// todo log error
 		return nil

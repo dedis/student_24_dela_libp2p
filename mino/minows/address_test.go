@@ -3,6 +3,7 @@ package minows
 import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
+	"go.dedis.ch/dela/mino"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -56,7 +57,7 @@ func TestNewAddress(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel() // run this test case in parallel to other test cases
 			// no exported fields on Address type, ignored
-			if _, err := NewAddress(tt.location, tt.identity); tt.err {
+			if _, err := newAddress(tt.location, tt.identity); tt.err {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
@@ -68,8 +69,8 @@ func TestNewAddress(t *testing.T) {
 func TestAddress_Equal(t *testing.T) {
 	reference := mustCreateAddress(AddrHostname, PID1)
 	tests := map[string]struct {
-		self  Address
-		other Address
+		self  address
+		other mino.Address
 		out   bool
 	}{
 		"self": {
@@ -92,6 +93,11 @@ func TestAddress_Equal(t *testing.T) {
 			other: mustCreateAddress(AddrHostname, PID2),
 			out:   false,
 		},
+		"nil": {
+			self:  reference,
+			other: nil,
+			out:   false,
+		},
 	}
 	t.Parallel()
 	for name, tt := range tests {
@@ -107,7 +113,7 @@ func TestAddress_Equal(t *testing.T) {
 }
 
 var sharedTests = map[string]struct {
-	addr        Address
+	addr        address
 	string      string
 	marshalText []byte
 }{
@@ -201,8 +207,8 @@ func TestAddressFactory_FromText_invalid(t *testing.T) {
 	}
 }
 
-func mustCreateAddress(location string, identity string) Address {
-	addr, err := NewAddress(mustCreateMultiaddress(location), mustCreatePeerID(identity))
+func mustCreateAddress(location string, identity string) address {
+	addr, err := newAddress(mustCreateMultiaddress(location), mustCreatePeerID(identity))
 	if err != nil {
 		panic(err)
 	}
