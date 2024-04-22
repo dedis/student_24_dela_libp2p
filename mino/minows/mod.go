@@ -1,6 +1,7 @@
 package minows
 
 import (
+	"go.dedis.ch/dela/serde/json"
 	"regexp"
 	"strings"
 
@@ -22,6 +23,7 @@ type minows struct {
 	segments []string
 	host     host.Host
 	rpcs     map[string]rpc
+	context  serde.Context
 }
 
 // NewMinows
@@ -48,6 +50,7 @@ func NewMinows(listen, public ma.Multiaddr, privKey crypto.PrivKey) (*minows, er
 		myAddr:   myAddr,
 		segments: nil,
 		host:     h,
+		context:  json.NewContext(),
 	}, nil
 }
 
@@ -65,7 +68,6 @@ func (m *minows) WithSegment(segment string) mino.Mino {
 	}
 
 	return &minows{
-		// TODO host, etc
 		myAddr:   m.myAddr,
 		segments: append(m.segments, segment),
 	}
@@ -90,15 +92,13 @@ func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 	}
 	uri := strings.Join(append(m.segments, name), "/")
 	// TODO wrap mino.Handler in network.StreamHandler
-	// TODO wrap 'req' Message in Request struct (
-	//  Request does not implement Serialize(
-	//  ) so sender doesn't wrap Message in Request before sending over the
-	//  stream. Receiver constructs Response after Deserialize(
-	//  ) Message before passing to handler.Process()
-	// m.host.SetStreamHandler(identity, h)
-	// todo when to return pointer instead of receiver?
+	//  to handle Call() with Process() and Stream() with Stream()
+	// TODO m.host.SetStreamHandler(identity, h)
+	// TODO when to return pointer vs struct?
 	return rpc{
-		uri: protocol.ID(uri),
-		// 	todo serde.Factory, serde.Context
+		uri:     protocol.ID(uri),
+		mino:    m,
+		factory: f,
+		context: m.context,
 	}, nil
 }

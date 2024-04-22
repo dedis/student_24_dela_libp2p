@@ -48,7 +48,7 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 		wg.Add(1)
 		go func(stream network.Stream) {
 			defer wg.Done()
-			err := send(stream, msg, s.rpc.msgContext)
+			err := send(stream, msg, s.rpc.context)
 			if err != nil {
 				errs <- err
 			}

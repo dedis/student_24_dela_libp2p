@@ -17,22 +17,13 @@ const MaxMessageSize = 1e9 // TODO verify
 
 // RPC implements mino.RPC
 // TODO unit tests
-// TODO handler implementation for Call() -> Process() and Stream() -> Stream()
-// Note: Wrap serde.Message in mino.Request at receiver side (remote) &
-// wrap serde.Message in mino.Response at receiver side (me) because
-// serde.Message implements Serialize() & Deserialize()
-// but mino.Request and mino.Response do not.
-// Only mino.Response is used & used only by Call() to wrap
-// serde.Message replies from remote players. Stream() does not use either struct.
 type rpc struct {
 	uri  protocol.ID
-	mino minows
+	mino *minows
 	host host.Host // todo replace with field minows and get by mino.Host()
-	// handler mino.Handler
-	// todo rename msgFactory
-	msgFactory serde.Factory // TODO assign in CreateRPC()
-	// todo rename msgContext
-	msgContext serde.Context // TODO assign somewhere
+	// TODO handler mino.Handler
+	factory serde.Factory
+	context serde.Context // TODO assign somewhere
 }
 
 // Call
@@ -68,12 +59,12 @@ func (r rpc) Call(
 					responses <- mino.NewResponseWithError(res.remote, res.err)
 					return
 				}
-				err := send(res.stream, req, r.msgContext)
+				err := send(res.stream, req, r.context)
 				if err != nil {
 					responses <- mino.NewResponseWithError(res.remote, err)
 					return
 				}
-				reply := receive(res.stream, r.msgFactory, r.msgContext)
+				reply := receive(res.stream, r.factory, r.context)
 				if err != nil {
 					responses <- mino.NewResponseWithError(reply.sender, reply.err)
 					return
@@ -131,7 +122,7 @@ func (r rpc) createSession(ctx context.Context,
 		go func(stream network.Stream) {
 			for {
 				select {
-				case in <- receive(stream, r.msgFactory, r.msgContext): // fan-in
+				case in <- receive(stream, r.factory, r.context): // fan-in
 				case <-ctx.Done():
 					return
 				}
