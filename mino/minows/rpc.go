@@ -20,16 +20,15 @@ const MaxMessageSize = 1e9 // TODO verify
 // RPC implements mino.RPC
 // TODO unit tests
 type rpc struct {
-	uri  string
-	mino *minows
-	// TODO handler mino.Handler
+	uri     string
+	mino    *minows
 	factory serde.Factory
 	context serde.Context
 }
 
 // Call
-// Returns an error if any player address is invalid.
-// Otherwise, returns a response channel 1) filled with replies or errors in
+// Returns an error if any player a is invalid.
+// Otherwise, returns a response channel 1) filled with replies or errors args
 // the network from each player 2) closed after each player has
 // replied or errored, or the context is done.
 func (r rpc) Call(

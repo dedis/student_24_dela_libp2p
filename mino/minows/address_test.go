@@ -19,35 +19,48 @@ const (
 	PID2 = "QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"
 )
 
-func TestNewAddress(t *testing.T) {
+func Test_newAddress(t *testing.T) {
+	type args struct {
+		location ma.Multiaddr
+		identity peer.ID
+	}
+	tests := map[string]struct {
+		args args
+	}{
+		"all interface": {
+			args: args{mustCreateMultiaddress(AddrAllInterface), mustCreatePeerID(PID1)},
+		},
+		"localhost": {
+			args: args{mustCreateMultiaddress(AddrLocalhost), mustCreatePeerID(PID2)},
+		},
+		"hostname": {
+			args: args{mustCreateMultiaddress(AddrHostname), mustCreatePeerID(PID1)},
+		},
+	}
+	t.Parallel() // run this test function args parallel to other test functions
+	for name, tt := range tests {
+		tt := tt // capture range variable
+		t.Run(name, func(t *testing.T) {
+			t.Parallel() // run this test case args parallel to other test cases
+			// no exported a on 'a' type, ignored
+			_, err := newAddress(tt.args.location, tt.args.identity)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func Test_newAddress_Invalid(t *testing.T) {
 	tests := map[string]struct {
 		location ma.Multiaddr
 		identity peer.ID
-		err      bool
 	}{
 		"missing location": {
 			location: nil,
 			identity: mustCreatePeerID(PID1),
-			err:      true,
 		},
 		"missing identity": {
 			location: mustCreateMultiaddress(AddrAllInterface),
 			identity: "",
-			err:      true,
-		},
-		"all interface": {
-			location: mustCreateMultiaddress(AddrAllInterface),
-			identity: mustCreatePeerID(PID1),
-		},
-		"localhost": {
-			location: mustCreateMultiaddress(AddrLocalhost),
-			identity: mustCreatePeerID(
-				PID2),
-		},
-		"hostname": {
-			location: mustCreateMultiaddress(AddrHostname),
-			identity: mustCreatePeerID(
-				PID1),
 		},
 	}
 
@@ -57,16 +70,13 @@ func TestNewAddress(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel() // run this test case in parallel to other test cases
 			// no exported fields on Address type, ignored
-			if _, err := newAddress(tt.location, tt.identity); tt.err {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
+			_, err := newAddress(tt.location, tt.identity)
+			require.Error(t, err)
 		})
 	}
 }
 
-func TestAddress_Equal(t *testing.T) {
+func Test_address_Equal(t *testing.T) {
 	reference := mustCreateAddress(AddrHostname, PID1)
 	tests := map[string]struct {
 		self  address
@@ -112,84 +122,113 @@ func TestAddress_Equal(t *testing.T) {
 	}
 }
 
-var sharedTests = map[string]struct {
-	addr        address
-	string      string
-	marshalText []byte
-}{
-	"all interface": {
-		addr:        mustCreateAddress(AddrAllInterface, PID1),
-		string:      "/ip4/0.0.0.0/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU",
-		marshalText: []byte("/ip4/0.0.0.0/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
-	},
-	"localhost": {
-		addr:        mustCreateAddress(AddrLocalhost, PID2),
-		string:      "/ip4/127.0.0.1/tcp/80/p2p/QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv",
-		marshalText: []byte("/ip4/127.0.0.1/tcp/80/p2p/QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"),
-	},
-	"hostname": {
-		addr:        mustCreateAddress(AddrHostname, PID1),
-		string:      "/dns4/example.com/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU",
-		marshalText: []byte("/dns4/example.com/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
-	},
-}
-
-func TestAddress_String(t *testing.T) {
+func Test_address_String(t *testing.T) {
+	tests := map[string]struct {
+		a    address
+		want string
+	}{
+		"all interface": {
+			a:    mustCreateAddress(AddrAllInterface, PID1),
+			want: "/ip4/0.0.0.0/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU",
+		},
+		"localhost": {
+			a:    mustCreateAddress(AddrLocalhost, PID2),
+			want: "/ip4/127.0.0.1/tcp/80/p2p/QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv",
+		},
+		"hostname": {
+			a:    mustCreateAddress(AddrHostname, PID1),
+			want: "/dns4/example.com/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU",
+		},
+	}
 	t.Parallel()
-	for name, tt := range sharedTests {
+	for name, tt := range tests {
 		tt := tt
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			result := tt.addr.String()
+			result := tt.a.String()
 
-			require.Equal(t, tt.string, result)
+			require.Equal(t, tt.want, result)
 		})
 	}
 }
 
-func TestAddress_MarshalText(t *testing.T) {
+func Test_address_MarshalText(t *testing.T) {
+	tests := map[string]struct {
+		a    address
+		want []byte
+	}{
+		"all interface": {
+			a:    mustCreateAddress(AddrAllInterface, PID1),
+			want: []byte("/ip4/0.0.0.0/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
+		},
+		"localhost": {
+			a:    mustCreateAddress(AddrLocalhost, PID2),
+			want: []byte("/ip4/127.0.0.1/tcp/80/p2p/QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"),
+		},
+		"hostname": {
+			a:    mustCreateAddress(AddrHostname, PID1),
+			want: []byte("/dns4/example.com/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
+		},
+	}
 	t.Parallel()
-	for name, tt := range sharedTests {
+	for name, tt := range tests {
 		tt := tt
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			result, err := tt.addr.MarshalText()
+			result, err := tt.a.MarshalText()
 
 			require.NoError(t, err)
-			require.Equal(t, tt.marshalText, result)
+			require.Equal(t, tt.want, result)
 		})
 	}
 }
 
-func TestAddressFactory_FromText(t *testing.T) {
+func Test_addressFactory_FromText(t *testing.T) {
+	tests := map[string]struct {
+		args []byte
+		want address
+	}{
+		"all interface": {
+			args: []byte("/ip4/0.0.0.0/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
+			want: mustCreateAddress(AddrAllInterface, PID1),
+		},
+		"localhost": {
+			args: []byte("/ip4/127.0.0.1/tcp/80/p2p/QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"),
+			want: mustCreateAddress(AddrLocalhost, PID2),
+		},
+		"hostname": {
+			args: []byte("/dns4/example.com/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
+			want: mustCreateAddress(AddrHostname, PID1),
+		},
+	}
 	t.Parallel()
 	factory := addressFactory{}
-	for name, tt := range sharedTests {
+	for name, tt := range tests {
 		tt := tt
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			result := factory.FromText(tt.marshalText)
+			result := factory.FromText(tt.args)
 
-			require.Equal(t, tt.addr, result)
+			require.Equal(t, tt.want, result)
 		})
 	}
 }
 
-func TestAddressFactory_FromText_invalid(t *testing.T) {
+func Test_addressFactory_FromText_Invalid(t *testing.T) {
 	tests := map[string]struct {
-		in []byte
+		args []byte
 	}{
 		"invalid text": {
-			in: []byte("invalid"),
+			args: []byte("invalid"),
 		},
 		"missing location": {
-			in: []byte("/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
+			args: []byte("/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
 		},
 		"missing identity": {
-			in: []byte(AddrLocalhost),
+			args: []byte(AddrLocalhost),
 		},
 	}
 
@@ -200,7 +239,7 @@ func TestAddressFactory_FromText_invalid(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			result := factory.FromText(tt.in)
+			result := factory.FromText(tt.args)
 
 			require.Nil(t, result)
 		})
