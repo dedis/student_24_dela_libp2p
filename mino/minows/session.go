@@ -16,7 +16,13 @@ import (
 type session struct {
 	streams map[peer.ID]network.Stream // read-only after initialization
 	rpc     rpc
-	in      chan envelope
+	in      chan envelope // closed when session ends
+}
+
+type envelope struct {
+	sender  address
+	message serde.Message
+	err     error
 }
 
 func (s session) Recv(ctx context.Context) (mino.Address, serde.Message, error) {

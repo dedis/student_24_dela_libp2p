@@ -1,6 +1,8 @@
 package minows
 
 import (
+	"github.com/libp2p/go-libp2p/core/network"
+	"go.dedis.ch/dela"
 	"go.dedis.ch/dela/serde/json"
 	"regexp"
 	"strings"
@@ -19,11 +21,11 @@ import (
 // Minows implements mino.Mino
 // TODO unit tests
 type minows struct {
-	myAddr   address
-	segments []string
-	host     host.Host
-	rpcs     map[string]rpc
-	context  serde.Context
+	myAddr    address
+	namespace []string
+	host      host.Host
+	rpcs      map[string]rpc
+	context   serde.Context
 }
 
 // NewMinows
@@ -47,10 +49,10 @@ func NewMinows(listen, public ma.Multiaddr, privKey crypto.PrivKey) (*minows, er
 	}
 
 	return &minows{
-		myAddr:   myAddr,
-		segments: nil,
-		host:     h,
-		context:  json.NewContext(),
+		myAddr:    myAddr,
+		namespace: nil,
+		host:      h,
+		context:   json.NewContext(),
 	}, nil
 }
 
@@ -67,17 +69,18 @@ func (m *minows) WithSegment(segment string) mino.Mino {
 		return m
 	}
 
+	// does not copy existing rpcs when creating mino for new namespace
 	return &minows{
-		myAddr:   m.myAddr,
-		segments: append(m.segments, segment),
+		myAddr:    m.myAddr,
+		namespace: append(m.namespace, segment),
 	}
 }
 
 func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.RPC, error) {
 	pattern := regexp.MustCompile("^[a-zA-Z0-9]+$")
-	// validate segments
-	if len(m.rpcs) == 0 { // no RPC created yet
-		for _, seg := range m.segments {
+	// validate namespace if no RPC created yet
+	if len(m.rpcs) == 0 {
+		for _, seg := range m.namespace {
 			if !pattern.MatchString(seg) {
 				return nil, xerrors.Errorf("invalid segment: %s", seg)
 			}
@@ -87,18 +90,65 @@ func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 	if !pattern.MatchString(name) {
 		return nil, xerrors.Errorf("invalid name: %s", name)
 	}
-	if _, ok := m.rpcs[name]; ok {
+	if _, found := m.rpcs[name]; found {
 		return nil, xerrors.Errorf("already exists rpc: %s", name)
 	}
-	uri := strings.Join(append(m.segments, name), "/")
-	// TODO wrap mino.Handler in network.StreamHandler
-	//  to handle Call() with Process() and Stream() with Stream()
-	// TODO m.host.SetStreamHandler(identity, h)
-	// TODO when to return pointer vs struct?
-	return rpc{
-		uri:     protocol.ID(uri),
+	// create rpc
+	uri := strings.Join(append(m.namespace, name), "/")
+	r := &rpc{
+		uri:     uri,
 		mino:    m,
 		factory: f,
 		context: m.context,
-	}, nil
+	}
+	// start listening
+	m.host.SetStreamHandler(protocol.ID(uri+"/call"),
+		callHandler(r, h))
+	m.host.SetStreamHandler(protocol.ID(uri+"/stream"),
+		streamHandler(r, h))
+	// TODO when to return pointer vs struct?
+	return r, nil
+}
+
+func callHandler(r *rpc, h mino.Handler) func(stream network.Stream) {
+	return func(stream network.Stream) {
+		sender, msg, err := receive(stream, r.factory, r.context)
+		if err != nil {
+			dela.Logger.Err(xerrors.Errorf(
+				"could not receive call request: %v", err))
+			return
+		}
+		resp, err := h.Process(mino.Request{Address: sender, Message: msg})
+		if err != nil {
+			dela.Logger.Err(xerrors.Errorf(
+				"could not process call request: %v", err))
+			return
+		}
+		err = send(stream, resp, r.context)
+		if err != nil {
+			dela.Logger.Err(xerrors.Errorf(
+				"could not send call response: %v", err))
+			return
+		}
+		// initiator resets & frees the stream
+	}
+}
+
+func streamHandler(r *rpc, h mino.Handler) func(stream network.Stream) {
+	return func(stream network.Stream) {
+		sess, err := r.createSession(
+			map[peer.ID]network.Stream{stream.Conn().RemotePeer(): stream})
+		if err != nil {
+			dela.Logger.Err(xerrors.Errorf(
+				"could not start stream session: %v", err))
+			return
+		}
+		err = h.Stream(sess, sess)
+		if err != nil {
+			dela.Logger.Err(xerrors.Errorf(
+				"could not handle stream: %v", err))
+			return
+		}
+		// initiator resets & frees the stream
+	}
 }

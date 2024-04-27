@@ -2,8 +2,10 @@ package minows
 
 import (
 	"context"
+	"errors"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"io"
 	"sync"
 
 	"github.com/libp2p/go-libp2p/core/host"
@@ -18,7 +20,7 @@ const MaxMessageSize = 1e9 // TODO verify
 // RPC implements mino.RPC
 // TODO unit tests
 type rpc struct {
-	uri  protocol.ID
+	uri  string
 	mino *minows
 	// TODO handler mino.Handler
 	factory serde.Factory
@@ -61,12 +63,12 @@ func (r rpc) Call(
 					responses <- mino.NewResponseWithError(res.remote, err)
 					return
 				}
-				reply := receive(res.stream, r.factory, r.context)
+				sender, msg, err := receive(res.stream, r.factory, r.context)
 				if err != nil {
-					responses <- mino.NewResponseWithError(reply.sender, reply.err)
+					responses <- mino.NewResponseWithError(sender, err)
 					return
 				}
-				responses <- mino.NewResponse(reply.sender, reply.message)
+				responses <- mino.NewResponse(sender, msg)
 			case <-ctx.Done(): // let goroutine exit if context is done
 			}
 		}()
@@ -103,31 +105,38 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 		}
 		streams[res.remote.identity] = res.stream
 	}
-	sess, err := r.createSession(ctx, streams)
+	sess, err := r.createSession(streams)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("could not start stream session: %v", err)
 	}
 	return sess, sess, nil
 }
 
-func (r rpc) createSession(ctx context.Context,
-	streams map[peer.ID]network.Stream) (*session, error) {
-	// listen for incoming messages till context is done
+// createSession
+// session ends automatically on both initiator & participant side by closing
+// the incoming message channel when the initiator is done and cancels the
+// stream context which resets all streams
+func (r rpc) createSession(streams map[peer.ID]network.Stream) (*session, error) {
+	// listen for incoming messages till streams are reset
 	in := make(chan envelope) // unbuffered
+	var wg sync.WaitGroup
 	for _, stream := range streams {
+		wg.Add(1)
 		go func(stream network.Stream) {
+			defer wg.Done()
 			for {
-				select {
-				case in <- receive(stream, r.factory, r.context): // fan-in
-				case <-ctx.Done():
+				sender, msg, err := receive(stream, r.factory, r.context)
+				if errors.Is(err, network.ErrReset) || errors.Is(err, io.EOF) {
 					return
 				}
+				in <- envelope{sender, msg, err} // fan-in
 			}
 		}(stream)
 	}
-	// close incoming message channel to signal session ended
+	// close incoming message channel when all streams are reset to signal
+	// session ended
 	go func() {
-		<-ctx.Done()
+		wg.Wait()
 		close(in)
 	}()
 	return &session{
@@ -157,7 +166,9 @@ type result struct {
 	err    error
 }
 
-func openStreams(ctx context.Context, h host.Host, uri protocol.ID,
+// when context is done: 1) cancel pending streams 2) reset
+// & free established streams 3) close output channel
+func openStreams(ctx context.Context, h host.Host, uri string,
 	addrs []address) chan result {
 	// dial each participant concurrently
 	var wg sync.WaitGroup
@@ -166,7 +177,8 @@ func openStreams(ctx context.Context, h host.Host, uri protocol.ID,
 		wg.Add(1)
 		go func(addr address) {
 			defer wg.Done()
-			stream, err := h.NewStream(ctx, addr.identity, uri)
+			// free stream when ctx is done
+			stream, err := h.NewStream(ctx, addr.identity, protocol.ID(uri))
 			// collect established stream or error
 			if err != nil {
 				results <- result{
@@ -176,7 +188,7 @@ func openStreams(ctx context.Context, h host.Host, uri protocol.ID,
 				return
 			}
 			results <- result{remote: addr, stream: stream}
-			go func() { // free established stream
+			go func() { // reset established stream
 				<-ctx.Done()
 				stream.Reset()
 			}()
@@ -202,34 +214,28 @@ func send(stream network.Stream, msg serde.Message, c serde.Context) error {
 	return nil
 }
 
-type envelope struct {
-	sender  address
-	message serde.Message
-	err     error
-}
-
 func receive(stream network.Stream,
-	f serde.Factory, c serde.Context) envelope {
+	f serde.Factory, c serde.Context) (address, serde.Message, error) {
 	sender, err := newAddress(
 		stream.Conn().RemoteMultiaddr(),
 		stream.Conn().RemotePeer())
 	if err != nil {
-		return envelope{err: xerrors.Errorf(
+		return address{}, nil, xerrors.Errorf(
 			"unexpected: could not create sender address: %v",
-			err)}
+			err)
 	}
 	buffer := make([]byte, MaxMessageSize)
 	n, err := stream.Read(buffer)
 	if err != nil {
-		return envelope{sender: sender, err: xerrors.Errorf(
+		return sender, nil, xerrors.Errorf(
 			"could not read from stream: %v",
-			err)}
+			err)
 	}
 	msg, err := f.Deserialize(c, buffer[:n])
 	if err != nil {
-		return envelope{sender: sender, err: xerrors.Errorf(
+		return sender, nil, xerrors.Errorf(
 			"could not deserialize message: %v",
-			err)}
+			err)
 	}
-	return envelope{sender: sender, message: msg}
+	return sender, msg, nil
 }
