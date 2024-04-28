@@ -6,15 +6,18 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
+	"go.dedis.ch/dela/mino"
+	"go.dedis.ch/dela/testing/fake"
 	"testing"
 )
 
+// todo make local to test functions
 const (
 	AddrWS  = "/ip4/127.0.0.1/tcp/80/ws"
 	AddrWSS = "/ip4/127.0.0.1/tcp/443/wss"
 )
 
-func TestNewMinows(t *testing.T) {
+func Test_newMinows(t *testing.T) {
 	type args struct {
 		listen  multiaddr.Multiaddr
 		public  multiaddr.Multiaddr
@@ -41,10 +44,11 @@ func TestNewMinows(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, err := NewMinows(tt.args.listen, tt.args.public, tt.args.privKey)
+			got, err := newMinows(tt.args.listen, tt.args.public, tt.args.privKey)
 			require.NoError(t, err)
 			require.NotNil(t, got)
-			got.close() // clean up
+			require.IsType(t, &minows{}, got)
+			got.close() // clean up todo assert no error
 		})
 	}
 }
@@ -69,16 +73,16 @@ func Test_minows_GetAddressFactory(t *testing.T) {
 }
 
 func Test_minows_GetAddress(t *testing.T) {
-	secret := mustCreateSecret()
-	pid := mustDerivePeerID(secret)
+	secret := mustCreateSecret()            // todo feed random seed
+	id := mustDerivePeerID(secret).String() // todo hardcode expected string
 	tests := map[string]struct {
 		m    *minows
 		want address
 	}{
 		"ws": {mustCreateMinows(AddrAllInterface, AddrWS, secret),
-			address{mustCreateMultiaddress(AddrWS), pid}},
+			mustCreateAddress(AddrWS, id)},
 		"wss": {mustCreateMinows(AddrAllInterface, AddrWSS, secret),
-			address{mustCreateMultiaddress(AddrWSS), pid}},
+			mustCreateAddress(AddrWSS, id)},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -92,7 +96,7 @@ func Test_minows_GetAddress(t *testing.T) {
 
 func Test_minows_WithSegment_Empty(t *testing.T) {
 	m := mustCreateMinows(AddrAllInterface, AddrWS, mustCreateSecret())
-	defer m.close()
+	defer m.close() // todo assert no error
 
 	got := m.WithSegment("")
 	require.Equal(t, m, got)
@@ -104,7 +108,10 @@ func Test_minows_WithSegment(t *testing.T) {
 
 	got := m.WithSegment("test")
 	require.NotEqual(t, m, got)
-	require.Equal(t, []string{"test"}, got.(*minows).namespace)
+
+	got2 := m.WithSegment("test").WithSegment("test")
+	require.NotEqual(t, m, got2)
+	require.NotEqual(t, got, got2)
 }
 
 func Test_minows_CreateRPC_InvalidName(t *testing.T) {
@@ -154,15 +161,25 @@ func Test_minows_CreateRPC(t *testing.T) {
 	require.NotNil(t, r4)
 }
 
+func mustCreateRPC(m *minows, name string, h mino.Handler) mino.RPC {
+	r, err := m.CreateRPC(name, h, fake.MessageFactory{}) // registers handler
+	if err != nil {
+		panic(err)
+	}
+	return r
+}
+
+// todo return tearDown func: m.close()
 func mustCreateMinows(listen string, public string, secret crypto.PrivKey) *minows {
-	m, err := NewMinows(mustCreateMultiaddress(listen),
-		mustCreateMultiaddress(public), secret)
+	m, err := newMinows(mustCreateMultiaddress(listen),
+		mustCreateMultiaddress(public), secret) // starts listening
 	if err != nil {
 		panic(err)
 	}
 	return m
 }
 
+// todo fix randomness to assert a known ID matches a fixed key
 func mustCreateSecret() crypto.PrivKey {
 	secret, _, err := crypto.GenerateEd25519Key(rand.Reader)
 	if err != nil {

@@ -2,6 +2,7 @@ package minows
 
 import (
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/rs/zerolog"
 	"go.dedis.ch/dela"
 	"go.dedis.ch/dela/serde/json"
 	"regexp"
@@ -20,39 +21,42 @@ import (
 
 // Minows implements mino.Mino
 type minows struct {
+	logger zerolog.Logger
+
 	myAddr    address
 	namespace []string
 	host      host.Host
 	context   serde.Context
-	rpcs      map[string]rpc
+	rpcs      map[string]any
 }
 
-// NewMinows
+// newMinows
 // listen: local listening address in multiaddress format,
 // e.g. /ip4/0.0.0.0/tcp/80
 // public: public dial-able address in multiaddress format,
 // e.g. /dns4/p2p-1.c4dt.dela.org/tcp/443/wss
-func NewMinows(listen, public ma.Multiaddr, secret crypto.PrivKey) (*minows, error) {
+func newMinows(listen, public ma.Multiaddr, secret crypto.PrivKey) (*minows,
+	error) {
 	id, err := peer.IDFromPrivateKey(secret)
 	if err != nil {
-		return nil, xerrors.Errorf("could not get Peer ID: %v", err)
+		return nil, xerrors.Errorf("could not get Peer ID: %w", err)
 	}
 	myAddr, err := newAddress(public, id)
 	if err != nil {
-		return nil, xerrors.Errorf("could not create address: %v", err)
+		return nil, xerrors.Errorf("could not create address: %w", err)
 	}
 	// create host & start listening
 	h, err := libp2p.New(libp2p.ListenAddrs(listen), libp2p.Identity(secret))
 	if err != nil {
-		return nil, xerrors.Errorf("could not create host: %v", err)
+		return nil, xerrors.Errorf("could not create host: %w", err)
 	}
-	// TODO populate peer store with multiaddr & peer IDs of other peers
 	return &minows{
+		logger:    dela.Logger.With().Str("mino", myAddr.String()).Logger(),
 		myAddr:    myAddr,
 		namespace: nil,
 		host:      h,
 		context:   json.NewContext(),
-		rpcs:      make(map[string]rpc),
+		rpcs:      make(map[string]any),
 	}, nil
 }
 
@@ -74,7 +78,7 @@ func (m *minows) WithSegment(segment string) mino.Mino {
 		myAddr:    m.myAddr,
 		namespace: append(m.namespace, segment),
 		host:      m.host,
-		rpcs:      make(map[string]rpc),
+		rpcs:      make(map[string]any),
 		context:   m.context,
 	}
 }
@@ -99,18 +103,19 @@ func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 	// create rpc
 	uri := strings.Join(append(m.namespace, name), "/")
 	r := &rpc{
+		logger:  m.logger.With().Str("rpc", uri).Logger(),
 		uri:     uri,
 		mino:    m,
 		factory: f,
 		context: m.context,
 	}
 	// TODO need to be thread safe?
-	m.rpcs[name] = *r
+	m.rpcs[name] = nil
 	// start listening
-	m.host.SetStreamHandler(protocol.ID(uri+"/call"),
-		callHandler(r, h))
-	m.host.SetStreamHandler(protocol.ID(uri+"/stream"),
-		streamHandler(r, h))
+	m.host.SetStreamHandler(protocol.ID(uri+PostfixCall),
+		r.createCallHandler(h))
+	m.host.SetStreamHandler(protocol.ID(uri+PostfixStream),
+		r.createStreamHandler(h))
 	// TODO when to return pointer vs struct?
 	return r, nil
 }
@@ -119,43 +124,45 @@ func (m *minows) close() error {
 	return m.host.Close()
 }
 
-func callHandler(r *rpc, h mino.Handler) func(stream network.Stream) {
+// todo move to rpc.go
+func (r rpc) createCallHandler(h mino.Handler) network.StreamHandler {
 	return func(stream network.Stream) {
 		sender, msg, err := receive(stream, r.factory, r.context)
 		if err != nil {
-			dela.Logger.Err(xerrors.Errorf(
-				"could not receive call request: %v", err))
+			r.logger.Err(xerrors.Errorf(
+				"could not receive call request: %w", err))
 			return
 		}
 		resp, err := h.Process(mino.Request{Address: sender, Message: msg})
 		if err != nil {
-			dela.Logger.Err(xerrors.Errorf(
-				"could not process call request: %v", err))
+			r.logger.Err(xerrors.Errorf(
+				"could not process call request: %w", err))
 			return
 		}
 		err = send(stream, resp, r.context)
 		if err != nil {
-			dela.Logger.Err(xerrors.Errorf(
-				"could not send call response: %v", err))
+			r.logger.Err(xerrors.Errorf(
+				"could not send call response: %w", err))
 			return
 		}
 		// initiator resets & frees the stream
 	}
 }
 
-func streamHandler(r *rpc, h mino.Handler) func(stream network.Stream) {
+// todo move to rpc.go
+func (r rpc) createStreamHandler(h mino.Handler) network.StreamHandler {
 	return func(stream network.Stream) {
 		sess, err := r.createSession(
 			map[peer.ID]network.Stream{stream.Conn().RemotePeer(): stream})
 		if err != nil {
 			dela.Logger.Err(xerrors.Errorf(
-				"could not start stream session: %v", err))
+				"could not start stream session: %w", err))
 			return
 		}
 		err = h.Stream(sess, sess)
 		if err != nil {
 			dela.Logger.Err(xerrors.Errorf(
-				"could not handle stream: %v", err))
+				"could not handle stream: %w", err))
 			return
 		}
 		// initiator resets & frees the stream

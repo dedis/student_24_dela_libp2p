@@ -2,11 +2,13 @@ package minows
 
 import (
 	"context"
+	"errors"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"go.dedis.ch/dela/mino"
 	"go.dedis.ch/dela/serde"
 	"golang.org/x/xerrors"
+	"io"
 	"sync"
 )
 
@@ -16,7 +18,7 @@ import (
 type session struct {
 	streams map[peer.ID]network.Stream // read-only after initialization
 	rpc     rpc
-	in      chan envelope // closed when session ends
+	in      chan envelope
 }
 
 type envelope struct {
@@ -25,25 +27,14 @@ type envelope struct {
 	err     error
 }
 
-func (s session) Recv(ctx context.Context) (mino.Address, serde.Message, error) {
-	select {
-	case env, ok := <-s.in:
-		if !ok { // session ended
-			return nil, nil, xerrors.New("session ended")
-		}
-		return env.sender, env.message, env.err
-	case <-ctx.Done():
-		return nil, nil, ctx.Err()
-	}
-}
-
 func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 	var wg sync.WaitGroup
 	errs := make(chan error, len(addrs))
-	for _, next := range addrs {
+	// send message to all addresses iteratively
+	for _, next := range addrs { // some may fail while some succeed
 		addr, ok := next.(address)
 		if !ok {
-			errs <- xerrors.Errorf("invalid address type: %T", next)
+			errs <- xerrors.Errorf("wrong address type: %T", next)
 			continue
 		}
 		stream, ok := s.streams[addr.identity]
@@ -55,7 +46,11 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 		go func(stream network.Stream) {
 			defer wg.Done()
 			err := send(stream, msg, s.rpc.context)
-			if err != nil {
+			// all streams are reset when session ends
+			if errors.Is(err, network.ErrReset) || errors.Is(err,
+				io.ErrClosedPipe) {
+				errs <- xerrors.Errorf("session ended: %w", err)
+			} else if err != nil {
 				errs <- err
 			}
 		}(stream)
@@ -66,4 +61,17 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 		close(errs)
 	}()
 	return errs
+}
+
+func (s session) Recv(ctx context.Context) (mino.Address, serde.Message, error) {
+	select {
+	case env := <-s.in:
+		// all streams are reset when session ends
+		if errors.Is(env.err, network.ErrReset) || errors.Is(env.err, io.EOF) {
+			return nil, nil, xerrors.Errorf("session ended: %w", env.err)
+		}
+		return env.sender, env.message, env.err
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	}
 }

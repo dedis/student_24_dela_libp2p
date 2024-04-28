@@ -86,7 +86,7 @@ func (f addressFactory) FromText(text []byte) mino.Address {
 	}
 	addr, err := newAddress(location, identity)
 	if err != nil {
-		dela.Logger.Err(xerrors.Errorf("could not create address: %v", err))
+		dela.Logger.Err(xerrors.Errorf("could not create address: %w", err))
 		return nil
 	}
 	return addr

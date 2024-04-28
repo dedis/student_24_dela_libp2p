@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// todo make local to test functions
 const (
 	AddrAllInterface = "/ip4/0.0.0.0/tcp/80"
 	AddrLocalhost    = "/ip4/127.0.0.1/tcp/80"

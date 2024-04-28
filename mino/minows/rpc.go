@@ -2,13 +2,12 @@ package minows
 
 import (
 	"context"
-	"errors"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"io"
+	"github.com/libp2p/go-libp2p/core/peerstore"
+	"github.com/rs/zerolog"
 	"sync"
 
-	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"go.dedis.ch/dela/mino"
 	"go.dedis.ch/dela/serde"
@@ -16,35 +15,51 @@ import (
 )
 
 const MaxMessageSize = 1e9 // TODO verify
+const PostfixCall = "/call"
+const PostfixStream = "/stream"
 
 // RPC implements mino.RPC
-// TODO unit tests
 type rpc struct {
+	logger zerolog.Logger
+
 	uri     string
 	mino    *minows
 	factory serde.Factory
 	context serde.Context
 }
 
-// Call
-// Returns an error if any player a is invalid.
+type result struct {
+	remote address
+	stream network.Stream
+	err    error
+}
+
+// Call is non-blocking and returns before all communications are established.
+// Returns an error if no players or any player address is of the wrong type.
 // Otherwise, returns a response channel 1) filled with replies or errors args
-// the network from each player 2) closed after each player has
+// the network from each player 2) closed after every player has
 // replied or errored, or the context is done.
 func (r rpc) Call(
 	ctx context.Context,
 	req serde.Message,
 	players mino.Players,
 ) (<-chan mino.Response, error) {
-	// TODO assumption: peer store already filled with 'players' Peer IDs & multi-addresses
+	if players == nil || players.Len() == 0 {
+		return nil, xerrors.New("no players to call")
+	}
 	// quit unless all player addresses are valid
 	addrs, err := toAddresses(players)
 	if err != nil {
 		return nil, err
 	}
-	results := openStreams(ctx, r.mino.host, r.uri, addrs)
-	// unicast a request-response to each player concurrently
-	// as streams are established
+	// fill peer store
+	for _, addr := range addrs {
+		r.mino.host.Peerstore().AddAddr(addr.identity, addr.location,
+			peerstore.PermanentAddrTTL)
+	}
+	// establish streams to all players concurrently
+	results := r.openStreams(ctx, protocol.ID(r.uri+PostfixCall), addrs)
+	// unicast to each player concurrently as streams establish
 	responses := make(chan mino.Response, len(addrs))
 	var wg sync.WaitGroup
 	for range addrs {
@@ -69,6 +84,8 @@ func (r rpc) Call(
 				}
 				responses <- mino.NewResponse(sender, msg)
 			case <-ctx.Done(): // let goroutine exit if context is done
+				// before all streams are established
+				// todo put "context cancelled" error in responses?
 			}
 		}()
 	}
@@ -79,23 +96,32 @@ func (r rpc) Call(
 	return responses, nil
 }
 
-// Stream
-// - context defines when the protocol is done,
-// and it should therefore always be canceled at some point. (DELA Doc)
-// - When it's done, all the connections are shut down and the resources are
-// cleaned up (DELA Doc)
-// - orchestrator of a protocol will contact one of the participants which
-// will be the root for the routing algorithm (i.e. gateway?).
-// It will then relay the messages according to the routing algorithm and
-// create relays to other peers when necessary (DELA Doc but ignored)
+// Stream is blocking and returns only after all communications are
+// established.
+// Returns an error if no players, any player address is of the wrong type,
+// or communication to any player fails to establish.
+// Otherwise, returns a stream session that can be used to send and receive
+// messages.
+// Note:
+// - 'ctx' defines when the stream session ends,
+// so should always be canceled at some point (e.g. completed task or errored).
+// - When it's done, all the connections are shut down and resources freed.
 func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, mino.Receiver, error) {
-	// TODO assumption: peer store already filled with 'players' Peer IDs & multi-addresses
+	if players == nil || players.Len() == 0 {
+		return nil, nil, xerrors.New("no players to stream")
+	}
 	// quit unless all player addresses are valid
 	addrs, err := toAddresses(players)
 	if err != nil {
 		return nil, nil, err
 	}
-	results := openStreams(ctx, r.mino.host, r.uri, addrs)
+	// fill peer store
+	for _, addr := range addrs {
+		r.mino.host.Peerstore().AddAddr(addr.identity, addr.location,
+			peerstore.PermanentAddrTTL)
+	}
+	// establish streams to all players concurrently
+	results := r.openStreams(ctx, protocol.ID(r.uri+PostfixStream), addrs)
 	// wait till all streams are established successfully or quit
 	streams := make(map[peer.ID]network.Stream)
 	for res := range results {
@@ -106,9 +132,50 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 	}
 	sess, err := r.createSession(streams)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("could not start stream session: %v", err)
+		return nil, nil, xerrors.Errorf("could not start stream session: %w", err)
 	}
 	return sess, sess, nil
+}
+
+// when context is done: 1) cancel pending streams 2) reset
+// & free established streams 3) close output channel
+func (r rpc) openStreams(ctx context.Context,
+	p protocol.ID, addrs []address) chan result {
+	r.logger.Debug().Msgf("opening streams to %v...", addrs)
+	// dial each participant concurrently
+	var wg sync.WaitGroup
+	results := make(chan result, len(addrs))
+	for _, addr := range addrs {
+		wg.Add(1)
+		go func(addr address) {
+			defer wg.Done()
+			// free stream when ctx is done
+			stream, err := r.mino.host.NewStream(ctx, addr.identity, p)
+			// collect established stream or error
+			if err != nil {
+				r.logger.Debug().Err(err).Msgf("could not open stream to %v", addr)
+				results <- result{
+					remote: addr,
+					err:    xerrors.Errorf("could not open stream: %w", err),
+				}
+				return
+			}
+			r.logger.Debug().Msgf("opened stream to %v", addr)
+			results <- result{remote: addr, stream: stream}
+			go func() { // reset established stream
+				<-ctx.Done()
+				stream.Reset() // todo log error
+				r.logger.Debug().Msgf("reset stream to %v", addr)
+			}()
+		}(addr)
+	}
+	// close output channels when no more pending streams
+	go func() {
+		wg.Wait()
+		close(results)
+		r.logger.Debug().Msg("finished opening streams")
+	}()
+	return results
 }
 
 // createSession
@@ -118,26 +185,14 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 func (r rpc) createSession(streams map[peer.ID]network.Stream) (*session, error) {
 	// listen for incoming messages till streams are reset
 	in := make(chan envelope) // unbuffered
-	var wg sync.WaitGroup
 	for _, stream := range streams {
-		wg.Add(1)
 		go func(stream network.Stream) {
-			defer wg.Done()
 			for {
 				sender, msg, err := receive(stream, r.factory, r.context)
-				if errors.Is(err, network.ErrReset) || errors.Is(err, io.EOF) {
-					return
-				}
 				in <- envelope{sender, msg, err} // fan-in
 			}
 		}(stream)
 	}
-	// close incoming message channel when all streams are reset to signal
-	// session ended
-	go func() {
-		wg.Wait()
-		close(in)
-	}()
 	return &session{
 		streams: streams,
 		rpc:     r,
@@ -152,63 +207,21 @@ func toAddresses(players mino.Players) ([]address, error) {
 		next := iter.GetNext()
 		addr, ok := next.(address)
 		if !ok {
-			return nil, xerrors.Errorf("invalid address type: %T", next)
+			return nil, xerrors.Errorf("wrong address type: %T", next)
 		}
 		addrs = append(addrs, addr)
 	}
 	return addrs, nil
 }
 
-type result struct {
-	remote address
-	stream network.Stream
-	err    error
-}
-
-// when context is done: 1) cancel pending streams 2) reset
-// & free established streams 3) close output channel
-func openStreams(ctx context.Context, h host.Host, uri string,
-	addrs []address) chan result {
-	// dial each participant concurrently
-	var wg sync.WaitGroup
-	results := make(chan result, len(addrs))
-	for _, addr := range addrs {
-		wg.Add(1)
-		go func(addr address) {
-			defer wg.Done()
-			// free stream when ctx is done
-			stream, err := h.NewStream(ctx, addr.identity, protocol.ID(uri))
-			// collect established stream or error
-			if err != nil {
-				results <- result{
-					remote: addr,
-					err:    xerrors.Errorf("could not open stream: %v", err),
-				}
-				return
-			}
-			results <- result{remote: addr, stream: stream}
-			go func() { // reset established stream
-				<-ctx.Done()
-				stream.Reset()
-			}()
-		}(addr)
-	}
-	// close output channels when no more pending streams
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-	return results
-}
-
 func send(stream network.Stream, msg serde.Message, c serde.Context) error {
 	data, err := msg.Serialize(c)
 	if err != nil {
-		return xerrors.Errorf("could not serialize message: %v", err)
+		return xerrors.Errorf("could not serialize message: %w", err)
 	}
 	_, err = stream.Write(data)
 	if err != nil {
-		return xerrors.Errorf("could not write to stream: %v", err)
+		return xerrors.Errorf("could not write to stream: %w", err)
 	}
 	return nil
 }
@@ -220,20 +233,20 @@ func receive(stream network.Stream,
 		stream.Conn().RemotePeer())
 	if err != nil {
 		return address{}, nil, xerrors.Errorf(
-			"unexpected: could not create sender address: %v",
+			"unexpected: could not create sender address: %w",
 			err)
 	}
 	buffer := make([]byte, MaxMessageSize)
 	n, err := stream.Read(buffer)
 	if err != nil {
 		return sender, nil, xerrors.Errorf(
-			"could not read from stream: %v",
+			"could not read from stream: %w",
 			err)
 	}
 	msg, err := f.Deserialize(c, buffer[:n])
 	if err != nil {
 		return sender, nil, xerrors.Errorf(
-			"could not deserialize message: %v",
+			"could not deserialize message: %w",
 			err)
 	}
 	return sender, msg, nil

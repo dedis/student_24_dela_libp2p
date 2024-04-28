@@ -45,7 +45,7 @@ package minows
 // }
 //
 // func newMinowsAndRPC() (mino.Mino, mino.RPC) {
-// 	m, err := NewMinows("ip4/127.0.0.1/tcp/9998/ws", "ip4/127.0.0.1/tcp/9998/ws",
+// 	m, err := newMinows("ip4/127.0.0.1/tcp/9998/ws", "ip4/127.0.0.1/tcp/9998/ws",
 // 		"QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU")
 // 	if err != nil {
 // 		panic(err)
