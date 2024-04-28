@@ -9,33 +9,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// todo make local to test functions
-const (
-	AddrAllInterface = "/ip4/0.0.0.0/tcp/80"
-	AddrLocalhost    = "/ip4/127.0.0.1/tcp/80"
-	AddrHostname     = "/dns4/example.com/tcp/80"
-)
-const (
-	PID1 = "QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"
-	PID2 = "QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"
-)
-
 func Test_newAddress(t *testing.T) {
+	const pid1 = "QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"
+	const pid2 = "QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"
+	const addrAllInterface = "/ip4/0.0.0.0/tcp/80"
+	const addrLocalhost = "/ip4/127.0.0.1/tcp/80"
+	const addrHostname = "/dns4/example.com/tcp/80"
 	type args struct {
-		location ma.Multiaddr
-		identity peer.ID
+		location string
+		identity string
 	}
 	tests := map[string]struct {
 		args args
 	}{
 		"all interface": {
-			args: args{mustCreateMultiaddress(AddrAllInterface), mustCreatePeerID(PID1)},
+			args: args{addrAllInterface, pid1},
 		},
 		"localhost": {
-			args: args{mustCreateMultiaddress(AddrLocalhost), mustCreatePeerID(PID2)},
+			args: args{addrLocalhost, pid2},
 		},
 		"hostname": {
-			args: args{mustCreateMultiaddress(AddrHostname), mustCreatePeerID(PID1)},
+			args: args{addrHostname, pid1},
 		},
 	}
 	t.Parallel() // run this test function args parallel to other test functions
@@ -43,28 +37,32 @@ func Test_newAddress(t *testing.T) {
 		tt := tt // capture range variable
 		t.Run(name, func(t *testing.T) {
 			t.Parallel() // run this test case args parallel to other test cases
-			// no exported a on 'a' type, ignored
-			_, err := newAddress(tt.args.location, tt.args.identity)
+			location := mustCreateMultiaddress(t, tt.args.location)
+			identity := mustCreatePeerID(t, tt.args.identity)
+
+			// no exported field on 'address' type, ignored
+			_, err := newAddress(location, identity)
 			require.NoError(t, err)
 		})
 	}
 }
 
 func Test_newAddress_Invalid(t *testing.T) {
+	const pid1 = "QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"
+	const addrAllInterface = "/ip4/0.0.0.0/tcp/80"
+
 	tests := map[string]struct {
 		location ma.Multiaddr
 		identity peer.ID
 	}{
 		"missing location": {
 			location: nil,
-			identity: mustCreatePeerID(PID1),
+			identity: mustCreatePeerID(t, pid1),
 		},
 		"missing identity": {
-			location: mustCreateMultiaddress(AddrAllInterface),
+			location: mustCreateMultiaddress(t, addrAllInterface),
 			identity: "",
-		},
-	}
-
+		}}
 	t.Parallel() // run this test function in parallel to other test functions
 	for name, tt := range tests {
 		tt := tt // capture range variable
@@ -78,7 +76,11 @@ func Test_newAddress_Invalid(t *testing.T) {
 }
 
 func Test_address_Equal(t *testing.T) {
-	reference := mustCreateAddress(AddrHostname, PID1)
+	const pid1 = "QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"
+	const pid2 = "QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"
+	const addrLocalhost = "/ip4/127.0.0.1/tcp/80"
+	const addrHostname = "/dns4/example.com/tcp/80"
+	reference := mustCreateAddress(t, addrHostname, pid1)
 	tests := map[string]struct {
 		self  address
 		other mino.Address
@@ -91,17 +93,17 @@ func Test_address_Equal(t *testing.T) {
 		},
 		"copy": {
 			self:  reference,
-			other: mustCreateAddress(AddrHostname, PID1),
+			other: mustCreateAddress(t, addrHostname, pid1),
 			out:   true,
 		},
 		"diff location": {
 			self:  reference,
-			other: mustCreateAddress(AddrLocalhost, PID1),
+			other: mustCreateAddress(t, addrLocalhost, pid1),
 			out:   false,
 		},
 		"diff identity": {
 			self:  reference,
-			other: mustCreateAddress(AddrHostname, PID2),
+			other: mustCreateAddress(t, addrHostname, pid2),
 			out:   false,
 		},
 		"nil": {
@@ -124,20 +126,25 @@ func Test_address_Equal(t *testing.T) {
 }
 
 func Test_address_String(t *testing.T) {
+	const pid1 = "QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"
+	const pid2 = "QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"
+	const addrAllInterface = "/ip4/0.0.0.0/tcp/80"
+	const addrLocalhost = "/ip4/127.0.0.1/tcp/80"
+	const addrHostname = "/dns4/example.com/tcp/80"
 	tests := map[string]struct {
 		a    address
 		want string
 	}{
 		"all interface": {
-			a:    mustCreateAddress(AddrAllInterface, PID1),
+			a:    mustCreateAddress(t, addrAllInterface, pid1),
 			want: "/ip4/0.0.0.0/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU",
 		},
 		"localhost": {
-			a:    mustCreateAddress(AddrLocalhost, PID2),
+			a:    mustCreateAddress(t, addrLocalhost, pid2),
 			want: "/ip4/127.0.0.1/tcp/80/p2p/QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv",
 		},
 		"hostname": {
-			a:    mustCreateAddress(AddrHostname, PID1),
+			a:    mustCreateAddress(t, addrHostname, pid1),
 			want: "/dns4/example.com/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU",
 		},
 	}
@@ -155,20 +162,25 @@ func Test_address_String(t *testing.T) {
 }
 
 func Test_address_MarshalText(t *testing.T) {
+	const pid1 = "QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"
+	const pid2 = "QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"
+	const addrAllInterface = "/ip4/0.0.0.0/tcp/80"
+	const addrLocalhost = "/ip4/127.0.0.1/tcp/80"
+	const addrHostname = "/dns4/example.com/tcp/80"
 	tests := map[string]struct {
 		a    address
 		want []byte
 	}{
 		"all interface": {
-			a:    mustCreateAddress(AddrAllInterface, PID1),
+			a:    mustCreateAddress(t, addrAllInterface, pid1),
 			want: []byte("/ip4/0.0.0.0/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
 		},
 		"localhost": {
-			a:    mustCreateAddress(AddrLocalhost, PID2),
+			a:    mustCreateAddress(t, addrLocalhost, pid2),
 			want: []byte("/ip4/127.0.0.1/tcp/80/p2p/QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"),
 		},
 		"hostname": {
-			a:    mustCreateAddress(AddrHostname, PID1),
+			a:    mustCreateAddress(t, addrHostname, pid1),
 			want: []byte("/dns4/example.com/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
 		},
 	}
@@ -187,21 +199,26 @@ func Test_address_MarshalText(t *testing.T) {
 }
 
 func Test_addressFactory_FromText(t *testing.T) {
+	const pid1 = "QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"
+	const pid2 = "QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"
+	const addrAllInterface = "/ip4/0.0.0.0/tcp/80"
+	const addrLocalhost = "/ip4/127.0.0.1/tcp/80"
+	const addrHostname = "/dns4/example.com/tcp/80"
 	tests := map[string]struct {
 		args []byte
 		want address
 	}{
 		"all interface": {
 			args: []byte("/ip4/0.0.0.0/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
-			want: mustCreateAddress(AddrAllInterface, PID1),
+			want: mustCreateAddress(t, addrAllInterface, pid1),
 		},
 		"localhost": {
 			args: []byte("/ip4/127.0.0.1/tcp/80/p2p/QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"),
-			want: mustCreateAddress(AddrLocalhost, PID2),
+			want: mustCreateAddress(t, addrLocalhost, pid2),
 		},
 		"hostname": {
 			args: []byte("/dns4/example.com/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
-			want: mustCreateAddress(AddrHostname, PID1),
+			want: mustCreateAddress(t, addrHostname, pid1),
 		},
 	}
 	t.Parallel()
@@ -219,6 +236,7 @@ func Test_addressFactory_FromText(t *testing.T) {
 }
 
 func Test_addressFactory_FromText_Invalid(t *testing.T) {
+	const addrLocalhost = "/ip4/127.0.0.1/tcp/80"
 	tests := map[string]struct {
 		args []byte
 	}{
@@ -229,7 +247,7 @@ func Test_addressFactory_FromText_Invalid(t *testing.T) {
 			args: []byte("/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
 		},
 		"missing identity": {
-			args: []byte(AddrLocalhost),
+			args: []byte(addrLocalhost),
 		},
 	}
 
@@ -247,26 +265,21 @@ func Test_addressFactory_FromText_Invalid(t *testing.T) {
 	}
 }
 
-func mustCreateAddress(location string, identity string) address {
-	addr, err := newAddress(mustCreateMultiaddress(location), mustCreatePeerID(identity))
-	if err != nil {
-		panic(err)
-	}
+func mustCreateAddress(t *testing.T, location, identity string) address {
+	addr, err := newAddress(mustCreateMultiaddress(t, location),
+		mustCreatePeerID(t, identity))
+	require.NoError(t, err)
 	return addr
 }
 
-func mustCreateMultiaddress(address string) ma.Multiaddr {
+func mustCreateMultiaddress(t *testing.T, address string) ma.Multiaddr {
 	multiaddr, err := ma.NewMultiaddr(address)
-	if err != nil {
-		panic(err)
-	}
+	require.NoError(t, err)
 	return multiaddr
 }
 
-func mustCreatePeerID(id string) peer.ID {
+func mustCreatePeerID(t *testing.T, id string) peer.ID {
 	pid, err := peer.Decode(id)
-	if err != nil {
-		panic(err)
-	}
+	require.NoError(t, err)
 	return pid
 }

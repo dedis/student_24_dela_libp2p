@@ -142,7 +142,7 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 func (r rpc) openStreams(ctx context.Context,
 	p protocol.ID, addrs []address) chan result {
 	r.logger.Debug().Msgf("opening streams to %v...", addrs)
-	// dial each participant concurrently
+	// dial each player concurrently
 	var wg sync.WaitGroup
 	results := make(chan result, len(addrs))
 	for _, addr := range addrs {
@@ -179,7 +179,7 @@ func (r rpc) openStreams(ctx context.Context,
 }
 
 // createSession
-// session ends automatically on both initiator & participant side by closing
+// session ends automatically on both initiator & player side by closing
 // the incoming message channel when the initiator is done and cancels the
 // stream context which resets all streams
 func (r rpc) createSession(streams map[peer.ID]network.Stream) (*session, error) {

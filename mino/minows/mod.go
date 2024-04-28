@@ -120,7 +120,7 @@ func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 	return r, nil
 }
 
-func (m *minows) close() error {
+func (m *minows) stop() error {
 	return m.host.Close()
 }
 
