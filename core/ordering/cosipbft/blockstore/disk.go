@@ -158,7 +158,7 @@ func (s *InDisk) Get(id types.Digest) (types.BlockLink, error) {
 	s.Unlock()
 
 	if !found {
-		return nil, xerrors.Errorf("'%v' not found: %w", id, ErrNoBlock)
+		return nil, xerrors.Errorf("'%v' not found: %v", id, ErrNoBlock)
 	}
 
 	return s.GetByIndex(index)
@@ -175,7 +175,7 @@ func (s *InDisk) GetByIndex(index uint64) (link types.BlockLink, err error) {
 		value := bucket.Get(key)
 
 		if len(value) == 0 {
-			return xerrors.Errorf("index %d not found: %w", index, ErrNoBlock)
+			return xerrors.Errorf("index %d not found: %v", index, ErrNoBlock)
 		}
 
 		var err error
@@ -252,7 +252,7 @@ func (s *InDisk) Last() (types.BlockLink, error) {
 	defer s.Unlock()
 
 	if s.length == 0 {
-		return nil, xerrors.Errorf("store is empty: %w", ErrNoBlock)
+		return nil, xerrors.Errorf("store is empty: %v", ErrNoBlock)
 	}
 
 	return s.last, nil

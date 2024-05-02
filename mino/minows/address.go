@@ -36,7 +36,6 @@ func newAddress(location ma.Multiaddr, identity peer.ID) (address, error) {
 
 // Equal implements mino.Address.
 func (a address) Equal(other mino.Address) bool {
-	// TODO handle 'a' or 'other' is nil
 	o, ok := other.(address)
 	return ok && a.location.Equal(o.location) && a.identity == o.identity
 }
@@ -47,9 +46,9 @@ func (a address) String() string {
 }
 
 // ConnectionType implements mino.Address
+// Not used by minows
 func (a address) ConnectionType() mino.AddressConnectionType {
-	// TODO implement
-	panic("not implemented")
+	return mino.ACTws
 }
 
 // MarshalText implements encoding.TextMarshaler.
@@ -72,23 +71,23 @@ func (f addressFactory) FromText(text []byte) mino.Address {
 	str := string(text)
 	loc, id, found := strings.Cut(str, protocolP2P)
 	if !found {
-		dela.Logger.Err(xerrors.Errorf("%q misses p2p protocol", str))
+		dela.Logger.Error().Msgf("%q misses p2p protocol", str)
 		return nil
 	}
 	location, err := ma.NewMultiaddr(loc)
 	if err != nil {
-		dela.Logger.Err(xerrors.Errorf("could not parse %q as multiaddress",
-			loc))
+		dela.Logger.Error().Msgf("could not parse %q as multiaddress",
+			loc)
 		return nil
 	}
 	identity, err := peer.Decode(id)
 	if err != nil {
-		dela.Logger.Err(xerrors.Errorf("could not decode %q as peer ID", id))
+		dela.Logger.Error().Msgf("could not decode %q as peer ID", id)
 		return nil
 	}
 	addr, err := newAddress(location, identity)
 	if err != nil {
-		dela.Logger.Err(xerrors.Errorf("could not create address: %w", err))
+		dela.Logger.Error().Msgf("could not create address: %v", err)
 		return nil
 	}
 	return addr

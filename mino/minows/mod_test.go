@@ -8,14 +8,10 @@ import (
 	"testing"
 )
 
-// TODO make tests external tests so it's clear what should be exported
-
 func Test_newMinows(t *testing.T) {
-	// todo rename listen
-	const addrAllInterface = "/ip4/0.0.0.0/tcp/80/ws"
-	// todo rename publicWS, publicWSS
-	const addrWS = "/ip4/127.0.0.1/tcp/80/ws"
-	const addrWSS = "/ip4/127.0.0.1/tcp/443/wss"
+	const listen = "/ip4/0.0.0.0/tcp/80/ws"
+	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
+	const publicWSS = "/ip4/127.0.0.1/tcp/443/wss"
 	type args struct {
 		listen string
 		public string
@@ -26,14 +22,14 @@ func Test_newMinows(t *testing.T) {
 		// 'public' only uses localhost a for local testing
 		"ws": {
 			args: args{
-				listen: addrAllInterface,
-				public: addrWS,
+				listen: listen,
+				public: publicWS,
 			},
 		},
 		"wss": {
 			args: args{
-				listen: addrAllInterface,
-				public: addrWSS,
+				listen: listen,
+				public: publicWSS,
 			},
 		},
 	}
@@ -53,9 +49,9 @@ func Test_newMinows(t *testing.T) {
 }
 
 func Test_minows_GetAddressFactory(t *testing.T) {
-	const addrAllInterface = "/ip4/0.0.0.0/tcp/80"
-	const addrWS = "/ip4/127.0.0.1/tcp/80/ws"
-	const addrWSS = "/ip4/127.0.0.1/tcp/443/wss"
+	const listen = "/ip4/0.0.0.0/tcp/80"
+	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
+	const publicWSS = "/ip4/127.0.0.1/tcp/443/wss"
 	type m struct {
 		listen string
 		public string
@@ -63,8 +59,8 @@ func Test_minows_GetAddressFactory(t *testing.T) {
 	tests := map[string]struct {
 		m m
 	}{
-		"ws":  {m{addrAllInterface, addrWS}},
-		"wss": {m{addrAllInterface, addrWSS}},
+		"ws":  {m{listen, publicWS}},
+		"wss": {m{listen, publicWSS}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -79,11 +75,11 @@ func Test_minows_GetAddressFactory(t *testing.T) {
 }
 
 func Test_minows_GetAddress(t *testing.T) {
-	const addrAllInterface = "/ip4/0.0.0.0/tcp/80"
-	const addrWS = "/ip4/127.0.0.1/tcp/80/ws"
+	const listen = "/ip4/0.0.0.0/tcp/80"
+	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
 	const addrWSS = "/ip4/127.0.0.1/tcp/443/wss"
-	secret := mustCreateSecret(t)              // todo feed random seed
-	id := mustDerivePeerID(t, secret).String() // todo hardcode expected string
+	secret := mustCreateSecret(t)
+	id := mustDerivePeerID(t, secret).String()
 	type m struct {
 		listen string
 		public string
@@ -97,8 +93,8 @@ func Test_minows_GetAddress(t *testing.T) {
 		m    m
 		want want
 	}{
-		"ws":  {m{addrAllInterface, addrWS, secret}, want{addrWS, id}},
-		"wss": {m{addrAllInterface, addrWSS, secret}, want{addrWSS, id}},
+		"ws":  {m{listen, publicWS, secret}, want{publicWS, id}},
+		"wss": {m{listen, addrWSS, secret}, want{addrWSS, id}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -115,9 +111,9 @@ func Test_minows_GetAddress(t *testing.T) {
 }
 
 func Test_minows_WithSegment_Empty(t *testing.T) {
-	const addrAllInterface = "/ip4/0.0.0.0/tcp/80"
-	const addrWS = "/ip4/127.0.0.1/tcp/80/ws"
-	m, stop := mustCreateMinows(t, addrAllInterface, addrWS)
+	const listen = "/ip4/0.0.0.0/tcp/80"
+	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
+	m, stop := mustCreateMinows(t, listen, publicWS)
 	defer stop()
 
 	got := m.WithSegment("")
@@ -125,9 +121,9 @@ func Test_minows_WithSegment_Empty(t *testing.T) {
 }
 
 func Test_minows_WithSegment(t *testing.T) {
-	const addrAllInterface = "/ip4/0.0.0.0/tcp/80"
-	const addrWS = "/ip4/127.0.0.1/tcp/80/ws"
-	m, stop := mustCreateMinows(t, addrAllInterface, addrWS)
+	const listen = "/ip4/0.0.0.0/tcp/80"
+	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
+	m, stop := mustCreateMinows(t, listen, publicWS)
 	defer stop()
 
 	got := m.WithSegment("test")
@@ -139,10 +135,10 @@ func Test_minows_WithSegment(t *testing.T) {
 }
 
 func Test_minows_CreateRPC_InvalidName(t *testing.T) {
-	const addrAllInterface = "/ip4/0.0.0.0/tcp/80"
-	const addrWS = "/ip4/127.0.0.1/tcp/80/ws"
+	const listen = "/ip4/0.0.0.0/tcp/80"
+	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
 	const addrWSS = "/ip4/127.0.0.1/tcp/443/wss"
-	m, stop := mustCreateMinows(t, addrAllInterface, addrWS)
+	m, stop := mustCreateMinows(t, listen, publicWS)
 	defer stop()
 
 	_, err := m.CreateRPC("invalid name", nil, nil)
@@ -150,9 +146,9 @@ func Test_minows_CreateRPC_InvalidName(t *testing.T) {
 }
 
 func Test_minows_CreateRPC_AlreadyExists(t *testing.T) {
-	const addrAllInterface = "/ip4/0.0.0.0/tcp/80"
-	const addrWS = "/ip4/127.0.0.1/tcp/80/ws"
-	m, stop := mustCreateMinows(t, addrAllInterface, addrWS)
+	const listen = "/ip4/0.0.0.0/tcp/80"
+	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
+	m, stop := mustCreateMinows(t, listen, publicWS)
 	defer stop()
 
 	_, err := m.CreateRPC("test", nil, nil)
@@ -162,9 +158,9 @@ func Test_minows_CreateRPC_AlreadyExists(t *testing.T) {
 }
 
 func Test_minows_CreateRPC_InvalidSegment(t *testing.T) {
-	const addrAllInterface = "/ip4/0.0.0.0/tcp/80"
-	const addrWS = "/ip4/127.0.0.1/tcp/80/ws"
-	m, stop := mustCreateMinows(t, addrAllInterface, addrWS)
+	const listen = "/ip4/0.0.0.0/tcp/80"
+	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
+	m, stop := mustCreateMinows(t, listen, publicWS)
 	defer stop()
 	m = m.WithSegment("invalid segment").(*minows)
 
@@ -173,9 +169,9 @@ func Test_minows_CreateRPC_InvalidSegment(t *testing.T) {
 }
 
 func Test_minows_CreateRPC(t *testing.T) {
-	const addrAllInterface = "/ip4/0.0.0.0/tcp/80"
-	const addrWS = "/ip4/127.0.0.1/tcp/80/ws"
-	m, stop := mustCreateMinows(t, addrAllInterface, addrWS)
+	const listen = "/ip4/0.0.0.0/tcp/80"
+	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
+	m, stop := mustCreateMinows(t, listen, publicWS)
 	defer stop()
 
 	r1, err := m.CreateRPC("test", nil, nil)
@@ -203,7 +199,6 @@ func mustCreateMinows(t *testing.T, listen string, public string) (*minows, func
 	return m, stop
 }
 
-// todo fix randomness to assert a known ID matches a fixed key
 func mustCreateSecret(t *testing.T) crypto.PrivKey {
 	secret, _, err := crypto.GenerateEd25519Key(rand.Reader)
 	require.NoError(t, err)

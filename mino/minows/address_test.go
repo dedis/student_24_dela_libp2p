@@ -32,11 +32,11 @@ func Test_newAddress(t *testing.T) {
 			args: args{addrHostname, pid1},
 		},
 	}
-	t.Parallel() // run this test function args parallel to other test functions
+	t.Parallel() // run this test function in parallel to other test functions
 	for name, tt := range tests {
 		tt := tt // capture range variable
 		t.Run(name, func(t *testing.T) {
-			t.Parallel() // run this test case args parallel to other test cases
+			t.Parallel() // run this test case in parallel to other test cases
 			location := mustCreateMultiaddress(t, tt.args.location)
 			identity := mustCreatePeerID(t, tt.args.identity)
 

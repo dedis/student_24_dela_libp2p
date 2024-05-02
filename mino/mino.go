@@ -48,8 +48,8 @@ const (
 	ACTgRPCS
 	// ACThttps is a publicly signed TLS secured grpc connection
 	ACThttps
-	// ACTws is unencrypted WebSocket connection
-	// TODO ACTws
+	// ACTws is a WebSocket connection
+	ACTws
 )
 
 // Address is a representation of a node's address.

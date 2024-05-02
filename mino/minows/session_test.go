@@ -26,7 +26,7 @@ func Test_session_Send(t *testing.T) {
 	err, open := <-errs
 	require.NoError(t, err)
 	require.False(t, open)
-	// 	TODO testHandler assert message received as-is
+	// TODO testHandler assert message received as-is
 
 	// TODO send to 2 participants
 }

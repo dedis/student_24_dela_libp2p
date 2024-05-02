@@ -9,9 +9,6 @@ import (
 	"testing"
 )
 
-// TODO parallelize tests: listen on a random port in each test,
-//  but how to pass this port in `public` dial address?
-
 func Test_rpc_Call(t *testing.T) {
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)

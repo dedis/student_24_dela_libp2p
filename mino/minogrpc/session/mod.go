@@ -600,7 +600,7 @@ func (r *unicastRelay) Send(ctx context.Context, p router.Packet) (*ptypes.Ack, 
 	ack, err := client.Forward(ctx, &ptypes.Packet{Serialized: data},
 		grpc.MaxCallRecvMsgSize(MaxMessageSize))
 	if err != nil {
-		return nil, xerrors.Errorf("client: %w", err)
+		return nil, xerrors.Errorf("client: %v", err)
 	}
 
 	return ack, nil

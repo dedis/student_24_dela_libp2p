@@ -50,7 +50,7 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 			// all streams are reset when session ends
 			if errors.Is(err, network.ErrReset) || errors.Is(err,
 				io.ErrClosedPipe) {
-				errs <- xerrors.Errorf("session ended: %w", err)
+				errs <- xerrors.Errorf("session ended: %v", err)
 			} else if err != nil {
 				errs <- err
 			}
@@ -69,7 +69,7 @@ func (s session) Recv(ctx context.Context) (mino.Address, serde.Message, error) 
 	case env := <-s.in:
 		// all streams are reset when session ends
 		if errors.Is(env.err, network.ErrReset) || errors.Is(env.err, io.EOF) {
-			return nil, nil, xerrors.Errorf("session ended: %w", env.err)
+			return nil, nil, xerrors.Errorf("session ended: %v", env.err)
 		}
 		return env.sender, env.message, env.err
 	case <-ctx.Done():

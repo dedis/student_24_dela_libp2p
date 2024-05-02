@@ -25,23 +25,26 @@ func (c controller) SetCommands(builder node.Builder) {
 			Name:     "listen",
 			Usage:    "set the address to listen on",
 			Required: true,
-			Value:    "/ip4/0.0.0.0/tcp/0", // default all interfaces,
-			// random port, any protocol
+			// default all interfaces
+			Value: "/ip4/0.0.0.0/tcp/80",
 		},
-		// todo need public?
-		// todo where is 'config' set?
+		cli.StringFlag{
+			Name:     "public",
+			Usage:    "set the publicly reachable address",
+			Required: true,
+			Value:    "",
+		},
 	)
 }
 
 func (c controller) OnStart(flags cli.Flags, injector node.Injector) error {
 	listen, err := ma.NewMultiaddr(flags.String("listen"))
 	if err != nil {
-		return xerrors.Errorf("could not parse listen addr: %w", err)
+		return xerrors.Errorf("could not parse listen addr: %v", err)
 	}
-	// todo 'public' is not used? remove?
 	public, err := ma.NewMultiaddr(flags.String("public"))
 	if err != nil {
-		return xerrors.Errorf("could not parse public addr: %w", err)
+		return xerrors.Errorf("could not parse public addr: %v", err)
 	}
 	secret, err := loadSecret(filepath.Join(flags.Path("config"), "priv.key"))
 	if err != nil {
@@ -49,7 +52,7 @@ func (c controller) OnStart(flags cli.Flags, injector node.Injector) error {
 	}
 	m, err := newMinows(listen, public, secret)
 	if err != nil {
-		return xerrors.Errorf("could not start mino: %w", err)
+		return xerrors.Errorf("could not start mino: %v", err)
 	}
 	injector.Inject(m)
 	return nil
@@ -59,11 +62,11 @@ func (c controller) OnStop(injector node.Injector) error {
 	var m *minows
 	err := injector.Resolve(m)
 	if err != nil {
-		return xerrors.Errorf("could not resolve mino: %w", err)
+		return xerrors.Errorf("could not resolve mino: %v", err)
 	}
 	err = m.stop()
 	if err != nil {
-		return xerrors.Errorf("could not stop mino: %w", err)
+		return xerrors.Errorf("could not stop mino: %v", err)
 	}
 	return nil
 }
@@ -73,11 +76,11 @@ func loadSecret(path string) (crypto.PrivKey, error) {
 	keyLoader := loader.NewFileLoader(path)
 	bytes, err := keyLoader.LoadOrCreate(newGenerator())
 	if err != nil {
-		return nil, xerrors.Errorf("could not load key: %w", err)
+		return nil, xerrors.Errorf("could not load key: %v", err)
 	}
 	private, err := crypto.UnmarshalPrivateKey(bytes)
 	if err != nil {
-		return nil, xerrors.Errorf("could not unmarshal key: %w", err)
+		return nil, xerrors.Errorf("could not unmarshal key: %v", err)
 	}
 	return private, nil
 }
@@ -87,11 +90,11 @@ type generator struct{}
 func (g generator) Generate() ([]byte, error) {
 	private, _, err := crypto.GenerateEd25519Key(rand.Reader)
 	if err != nil {
-		return nil, xerrors.Errorf("could not generate keys: %w", err)
+		return nil, xerrors.Errorf("could not generate keys: %v", err)
 	}
 	bytes, err := crypto.MarshalPrivateKey(private)
 	if err != nil {
-		return nil, xerrors.Errorf("could not marshal key: %w", err)
+		return nil, xerrors.Errorf("could not marshal key: %v", err)
 	}
 	return bytes, nil
 }
