@@ -6,6 +6,7 @@ import (
 	"go.dedis.ch/dela/mino"
 	"go.dedis.ch/dela/testing/fake"
 	"testing"
+	"time"
 )
 
 func Test_session_Send(t *testing.T) {
@@ -14,21 +15,30 @@ func Test_session_Send(t *testing.T) {
 	defer stop()
 	r := mustCreateRPC(t, initiator, "test", testHandler{})
 
-	const addrPlayer = "/ip4/127.0.0.1/tcp/6002/ws"
-	player, stop := mustCreateMinows(t, addrPlayer, addrPlayer)
+	const addrPlayer1 = "/ip4/127.0.0.1/tcp/6002/ws"
+	player1, stop := mustCreateMinows(t, addrPlayer1, addrPlayer1)
 	defer stop()
-	mustCreateRPC(t, player, "test", testHandler{})
+	mustCreateRPC(t, player1, "test", testHandler{})
 
-	s, _, stop := mustCreateSession(t, r, player)
+	const addrPlayer2 = "/ip4/127.0.0.1/tcp/6003/ws"
+	player2, stop := mustCreateMinows(t, addrPlayer2, addrPlayer2)
+	defer stop()
+	mustCreateRPC(t, player2, "test", testHandler{})
+
+	s, _, stop := mustCreateSession(t, r, player1, player2)
 	defer stop()
 
-	errs := s.Send(fake.Message{}, player.GetAddress())
+	// send to one
+	errs := s.Send(fake.Message{}, player1.GetAddress())
 	err, open := <-errs
 	require.NoError(t, err)
 	require.False(t, open)
-	// TODO testHandler assert message received as-is
 
-	// TODO send to 2 participants
+	// send to two
+	errs = s.Send(fake.Message{}, player1.GetAddress(), player2.GetAddress())
+	err, open = <-errs
+	require.NoError(t, err)
+	require.False(t, open)
 }
 
 func Test_session_Send_WrongAddressType(t *testing.T) {
@@ -95,22 +105,49 @@ func Test_session_Recv(t *testing.T) {
 	defer stop()
 	r := mustCreateRPC(t, initiator, "test", testHandler{})
 
-	const addrPlayer = "/ip4/127.0.0.1/tcp/6002/ws"
-	player, stop := mustCreateMinows(t, addrPlayer, addrPlayer)
+	const addrPlayer1 = "/ip4/127.0.0.1/tcp/6002/ws"
+	player1, stop := mustCreateMinows(t, addrPlayer1, addrPlayer1)
 	defer stop()
-	mustCreateRPC(t, player, "test", testHandler{})
+	mustCreateRPC(t, player1, "test", testHandler{})
 
-	sender, receiver, stop := mustCreateSession(t, r, player)
+	const addrPlayer2 = "/ip4/127.0.0.1/tcp/6003/ws"
+	player2, stop := mustCreateMinows(t, addrPlayer2, addrPlayer2)
 	defer stop()
-	errs := sender.Send(fake.Message{}, player.GetAddress())
+	mustCreateRPC(t, player2, "test", testHandler{})
+
+	sender, receiver, stop := mustCreateSession(t, r, player1, player2)
+	defer stop()
+
+	// sent to one, received once
+	errs := sender.Send(fake.Message{}, player1.GetAddress())
 	require.NoError(t, <-errs) // sent successfully
 
-	from, msg, err := receiver.Recv(context.Background())
+	// avoid blocking if this test hangs
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	from, msg, err := receiver.Recv(ctx)
 	require.NoError(t, err)
-	require.Equal(t, player.GetAddress(), from)
+	require.Equal(t, player1.GetAddress(), from)
 	require.Equal(t, fake.Message{}, msg)
 
-	// TODO send to & receive from 2 participants
+	// sent to two, received twice
+	errs = sender.Send(fake.Message{}, player1.GetAddress(),
+		player2.GetAddress())
+	require.NoError(t, <-errs) // sent successfully
+
+	from1, msg, err := receiver.Recv(ctx)
+	require.NoError(t, err)
+	require.True(t, from1.Equal(player1.GetAddress()) || from1.Equal(player2.
+		GetAddress()))
+	require.Equal(t, fake.Message{}, msg)
+
+	from2, msg, err := receiver.Recv(ctx)
+	require.NoError(t, err)
+	require.True(t, from2.Equal(player1.GetAddress()) || from2.Equal(player2.
+		GetAddress()))
+	require.Equal(t, fake.Message{}, msg)
+	require.NotEqual(t, from1, from2)
 }
 
 func Test_session_Recv_SessionEnded(t *testing.T) {
@@ -129,7 +166,11 @@ func Test_session_Recv_SessionEnded(t *testing.T) {
 	require.NoError(t, <-errs) // sent successfully
 	stop()
 
-	_, _, err := receiver.Recv(context.Background())
+	// avoid blocking if this test hangs
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, _, err := receiver.Recv(ctx)
 	require.ErrorContains(t, err, "session ended")
 }
 
@@ -157,9 +198,13 @@ func Test_session_Recv_ContextCancelled(t *testing.T) {
 }
 
 func mustCreateSession(t *testing.T, rpc mino.RPC,
-	player *minows) (mino.Sender, mino.Receiver, func()) {
+	minos ...*minows) (mino.Sender, mino.Receiver, func()) {
 	ctx, cancel := context.WithCancel(context.Background())
-	players := mino.NewAddresses(player.GetAddress())
+	var addrs []mino.Address
+	for _, m := range minos {
+		addrs = append(addrs, m.GetAddress())
+	}
+	players := mino.NewAddresses(addrs...)
 	stop := func() {
 		cancel()
 	}

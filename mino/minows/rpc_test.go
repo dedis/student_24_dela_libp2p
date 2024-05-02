@@ -229,17 +229,20 @@ func Test_rpc_Stream_ContextCancelled(t *testing.T) {
 type testHandler struct{}
 
 func (e testHandler) Process(req mino.Request) (resp serde.Message, err error) {
+	// echo req as reply
 	return req.Message, nil
 }
 
 func (e testHandler) Stream(out mino.Sender, in mino.Receiver) error {
-	from, msg, err := in.Recv(context.Background())
-	if err != nil {
-		return err
-	}
-	err = <-out.Send(msg, from)
-	if err != nil {
-		return err
+	for { // keep echoing till session ends/stream resets
+		from, msg, err := in.Recv(context.Background())
+		if err != nil {
+			return err
+		}
+		err = <-out.Send(msg, from)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

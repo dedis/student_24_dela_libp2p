@@ -153,13 +153,6 @@ func (r rpc) createCallHandler(h mino.Handler) network.StreamHandler {
 	}
 }
 
-func (r rpc) addPeers(addrs []address) {
-	for _, addr := range addrs {
-		r.mino.host.Peerstore().AddAddr(addr.identity, addr.location,
-			peerstore.PermanentAddrTTL)
-	}
-}
-
 func (r rpc) createStreamHandler(h mino.Handler) network.StreamHandler {
 	return func(stream network.Stream) {
 		sess, err := r.createSession(
@@ -168,12 +161,21 @@ func (r rpc) createStreamHandler(h mino.Handler) network.StreamHandler {
 			dela.Logger.Error().Msgf("could not start stream session: %v", err)
 			return
 		}
-		err = h.Stream(sess, sess)
-		if err != nil {
-			dela.Logger.Err(err).Msg("could not handle stream")
-			return
-		}
+		go func() {
+			err = h.Stream(sess, sess)
+			if err != nil {
+				dela.Logger.Err(err).Msg("could not handle stream")
+				return
+			}
+		}()
 		// initiator resets & frees the stream
+	}
+}
+
+func (r rpc) addPeers(addrs []address) {
+	for _, addr := range addrs {
+		r.mino.host.Peerstore().AddAddr(addr.identity, addr.location,
+			peerstore.PermanentAddrTTL)
 	}
 }
 
