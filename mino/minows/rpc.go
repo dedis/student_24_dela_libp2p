@@ -2,11 +2,13 @@ package minows
 
 import (
 	"context"
+	"errors"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/rs/zerolog"
 	"go.dedis.ch/dela"
+	"io"
 	"sync"
 
 	"github.com/libp2p/go-libp2p/core/protocol"
@@ -275,6 +277,9 @@ func send(stream network.Stream, msg serde.Message, c serde.Context) error {
 		return xerrors.Errorf("could not serialize message: %v", err)
 	}
 	_, err = stream.Write(data)
+	if errors.Is(err, network.ErrReset) || err == io.EOF {
+		return err
+	}
 	if err != nil {
 		return xerrors.Errorf("could not write to stream: %v", err)
 	}
@@ -293,6 +298,9 @@ func receive(stream network.Stream,
 	}
 	buffer := make([]byte, MaxMessageSize)
 	n, err := stream.Read(buffer)
+	if errors.Is(err, network.ErrReset) || err == io.EOF {
+		return sender, nil, err
+	}
 	if err != nil {
 		return sender, nil, xerrors.Errorf(
 			"could not read from stream: %v",
