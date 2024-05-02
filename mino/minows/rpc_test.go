@@ -225,7 +225,6 @@ func Test_rpc_Stream_ContextCancelled(t *testing.T) {
 
 // testHandler implements mino.Handler
 // Captures received requests for test assertions ands echo back the message
-// TODO capture received requests/messages for assertions
 type testHandler struct{}
 
 func (e testHandler) Process(req mino.Request) (resp serde.Message, err error) {
