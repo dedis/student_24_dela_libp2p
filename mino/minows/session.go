@@ -30,8 +30,9 @@ type envelope struct {
 func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 	var wg sync.WaitGroup
 	errs := make(chan error, len(addrs))
-	// send message to all addresses iteratively
-	for _, next := range addrs { // some may fail while some succeed
+	// send message to all addresses concurrently
+	// some may fail while some succeed
+	for _, next := range addrs {
 		addr, ok := next.(address)
 		if !ok {
 			errs <- xerrors.Errorf("wrong address type: %T", next)

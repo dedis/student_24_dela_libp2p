@@ -14,19 +14,20 @@ import (
 
 const protocolP2P = "/p2p/"
 
+// address represents a publicly reachable network address that can be used
+// to establish communication with a remote player through libp2p and therefore,
+// must have both `location` and `identity` components.
 type address struct {
 	location ma.Multiaddr // required
 	identity peer.ID      // required
 }
 
-// newAddress creates a new address that must have a valid `location` and
-// `identity`.
+// newAddress creates a new address from a publicly reachable location and a
+// peer identity.
 func newAddress(location ma.Multiaddr, identity peer.ID) (address, error) {
-	// validate
 	if location == nil || identity.String() == "" {
 		return address{}, xerrors.New("address must have location and identity")
 	}
-
 	return address{
 		location: location,
 		identity: identity,
@@ -35,6 +36,7 @@ func newAddress(location ma.Multiaddr, identity peer.ID) (address, error) {
 
 // Equal implements mino.Address.
 func (a address) Equal(other mino.Address) bool {
+	// TODO handle 'a' or 'other' is nil
 	o, ok := other.(address)
 	return ok && a.location.Equal(o.location) && a.identity == o.identity
 }
@@ -65,23 +67,23 @@ type addressFactory struct {
 
 // FromText implements mino.AddressFactory. It returns an instance of an address
 // from a byte slice.
-// Returns nil if fails
+// Returns nil if fails.
 func (f addressFactory) FromText(text []byte) mino.Address {
 	str := string(text)
 	loc, id, found := strings.Cut(str, protocolP2P)
 	if !found {
-		dela.Logger.Err(xerrors.Errorf("%s misses p2p protocol", str))
+		dela.Logger.Err(xerrors.Errorf("%q misses p2p protocol", str))
 		return nil
 	}
 	location, err := ma.NewMultiaddr(loc)
 	if err != nil {
-		dela.Logger.Err(xerrors.Errorf("could not parse %s as multiaddress",
+		dela.Logger.Err(xerrors.Errorf("could not parse %q as multiaddress",
 			loc))
 		return nil
 	}
 	identity, err := peer.Decode(id)
 	if err != nil {
-		dela.Logger.Err(xerrors.Errorf("could not decode %s as peer ID", id))
+		dela.Logger.Err(xerrors.Errorf("could not decode %q as peer ID", id))
 		return nil
 	}
 	addr, err := newAddress(location, identity)

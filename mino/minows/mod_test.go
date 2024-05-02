@@ -8,8 +8,12 @@ import (
 	"testing"
 )
 
+// TODO make tests external tests so it's clear what should be exported
+
 func Test_newMinows(t *testing.T) {
-	const addrAllInterface = "/ip4/0.0.0.0/tcp/80"
+	// todo rename listen
+	const addrAllInterface = "/ip4/0.0.0.0/tcp/80/ws"
+	// todo rename publicWS, publicWSS
 	const addrWS = "/ip4/127.0.0.1/tcp/80/ws"
 	const addrWSS = "/ip4/127.0.0.1/tcp/443/wss"
 	type args struct {

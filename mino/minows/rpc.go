@@ -52,7 +52,7 @@ func (r rpc) Call(
 	if err != nil {
 		return nil, err
 	}
-	// fill peer store
+	// fill peer store TODO extract method
 	for _, addr := range addrs {
 		r.mino.host.Peerstore().AddAddr(addr.identity, addr.location,
 			peerstore.PermanentAddrTTL)
@@ -72,17 +72,18 @@ func (r rpc) Call(
 					responses <- mino.NewResponseWithError(res.remote, res.err)
 					return
 				}
+				// TODO extract function: unicast(stream, req, f, c) (resp, err)
 				err := send(res.stream, req, r.context)
 				if err != nil {
 					responses <- mino.NewResponseWithError(res.remote, err)
 					return
 				}
-				sender, msg, err := receive(res.stream, r.factory, r.context)
+				sender, reply, err := receive(res.stream, r.factory, r.context)
 				if err != nil {
 					responses <- mino.NewResponseWithError(sender, err)
 					return
 				}
-				responses <- mino.NewResponse(sender, msg)
+				responses <- mino.NewResponse(sender, reply)
 			case <-ctx.Done(): // let goroutine exit if context is done
 				// before all streams are established
 				// todo put "context cancelled" error in responses?
@@ -115,7 +116,7 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 	if err != nil {
 		return nil, nil, err
 	}
-	// fill peer store
+	// fill peer store TODO extract method
 	for _, addr := range addrs {
 		r.mino.host.Peerstore().AddAddr(addr.identity, addr.location,
 			peerstore.PermanentAddrTTL)
@@ -123,6 +124,7 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 	// establish streams to all players concurrently
 	results := r.openStreams(ctx, protocol.ID(r.uri+PostfixStream), addrs)
 	// wait till all streams are established successfully or quit
+	// TODO extract function: collectStreams(results) (map[peer.ID]network.Stream, error)
 	streams := make(map[peer.ID]network.Stream)
 	for res := range results {
 		if res.err != nil {
@@ -228,6 +230,7 @@ func send(stream network.Stream, msg serde.Message, c serde.Context) error {
 
 func receive(stream network.Stream,
 	f serde.Factory, c serde.Context) (address, serde.Message, error) {
+	// TODO extract method: getRemoteAddress(stream) (address, error)
 	sender, err := newAddress(
 		stream.Conn().RemoteMultiaddr(),
 		stream.Conn().RemotePeer())
