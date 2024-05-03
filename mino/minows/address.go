@@ -19,8 +19,8 @@ const protocolP2P = "/p2p/"
 // therefore, must have both `location` and `identity` components.
 // - implements mino.Address
 type address struct {
-	location ma.Multiaddr // required
-	identity peer.ID      // required
+	location ma.Multiaddr
+	identity peer.ID
 }
 
 // newAddress creates a new address from a publicly reachable location with a

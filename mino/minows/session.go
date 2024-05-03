@@ -16,7 +16,7 @@ import (
 // between a Minows instance and other players of the RPC .
 // - implements mino.Sender, mino.Receiver
 type session struct {
-	streams map[peer.ID]network.Stream // read-only after initialization
+	streams map[peer.ID]network.Stream
 	rpc     rpc
 	in      chan envelope
 }

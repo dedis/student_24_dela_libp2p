@@ -67,7 +67,8 @@ func (r rpc) Call(ctx context.Context, req serde.Message,
 			defer wg.Done()
 
 			select {
-			case res := <-results: // fan-out
+			case <-ctx.Done():
+			case res := <-results:
 				if res.err != nil {
 					responses <- mino.NewResponseWithError(res.remote, res.err)
 					return
@@ -78,8 +79,6 @@ func (r rpc) Call(ctx context.Context, req serde.Message,
 					return
 				}
 				responses <- mino.NewResponse(res.remote, reply)
-			case <-ctx.Done(): // let goroutine exit if context is done
-				// before all streams are established
 			}
 		}()
 	}
@@ -215,7 +214,7 @@ func (r rpc) openStreams(ctx context.Context,
 			r.logger.Debug().Msgf("opened stream to %v", addr)
 			results <- result{remote: addr, stream: stream}
 
-			go func() { // reset established stream
+			go func() {
 				<-ctx.Done()
 				err := stream.Reset()
 				if err != nil {
@@ -254,12 +253,12 @@ func (r rpc) unicast(stream network.Stream, req serde.Message,
 // the incoming message channel when the initiator is done and cancels the
 // stream context which resets all streams
 func (r rpc) createSession(streams map[peer.ID]network.Stream) (*session, error) {
-	in := make(chan envelope) // unbuffered
+	in := make(chan envelope)
 	for _, stream := range streams {
 		go func(stream network.Stream) {
 			for {
 				sender, msg, err := receive(stream, r.factory, r.context)
-				in <- envelope{sender, msg, err} // fan-in
+				in <- envelope{sender, msg, err}
 			}
 		}(stream)
 	}

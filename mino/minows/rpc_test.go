@@ -248,7 +248,7 @@ func (e testHandler) Stream(out mino.Sender, in mino.Receiver) error {
 
 func mustCreateRPC(t *testing.T, m mino.Mino, name string,
 	h mino.Handler) mino.RPC {
-	r, err := m.CreateRPC(name, h, fake.MessageFactory{}) // registers handler
+	r, err := m.CreateRPC(name, h, fake.MessageFactory{})
 	require.NoError(t, err)
 	return r
 }
