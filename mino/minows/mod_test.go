@@ -77,7 +77,7 @@ func Test_minows_GetAddressFactory(t *testing.T) {
 func Test_minows_GetAddress(t *testing.T) {
 	const listen = "/ip4/0.0.0.0/tcp/80"
 	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
-	const addrWSS = "/ip4/127.0.0.1/tcp/443/wss"
+	const publicWSS = "/ip4/127.0.0.1/tcp/443/wss"
 	secret := mustCreateSecret(t)
 	id := mustDerivePeerID(t, secret).String()
 	type m struct {
@@ -94,7 +94,7 @@ func Test_minows_GetAddress(t *testing.T) {
 		want want
 	}{
 		"ws":  {m{listen, publicWS, secret}, want{publicWS, id}},
-		"wss": {m{listen, addrWSS, secret}, want{addrWSS, id}},
+		"wss": {m{listen, publicWSS, secret}, want{publicWSS, id}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
