@@ -9,8 +9,8 @@ import (
 )
 
 func Test_newMinows(t *testing.T) {
-	const listen = "/ip4/0.0.0.0/tcp/80/ws"
-	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
+	const listen = "/ip4/0.0.0.0/tcp/6000/ws"
+	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
 	const publicWSS = "/ip4/127.0.0.1/tcp/443/wss"
 	type args struct {
 		listen string
@@ -48,8 +48,8 @@ func Test_newMinows(t *testing.T) {
 }
 
 func Test_minows_GetAddressFactory(t *testing.T) {
-	const listen = "/ip4/0.0.0.0/tcp/80"
-	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
+	const listen = "/ip4/0.0.0.0/tcp/6000"
+	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
 	const publicWSS = "/ip4/127.0.0.1/tcp/443/wss"
 	type m struct {
 		listen string
@@ -74,8 +74,8 @@ func Test_minows_GetAddressFactory(t *testing.T) {
 }
 
 func Test_minows_GetAddress(t *testing.T) {
-	const listen = "/ip4/0.0.0.0/tcp/80"
-	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
+	const listen = "/ip4/0.0.0.0/tcp/6000"
+	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
 	const addrWSS = "/ip4/127.0.0.1/tcp/443/wss"
 	secret := mustCreateSecret(t)
 	id := mustDerivePeerID(t, secret).String()
@@ -110,8 +110,8 @@ func Test_minows_GetAddress(t *testing.T) {
 }
 
 func Test_minows_WithSegment_Empty(t *testing.T) {
-	const listen = "/ip4/0.0.0.0/tcp/80"
-	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
+	const listen = "/ip4/0.0.0.0/tcp/6000"
+	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
 	m, stop := mustCreateMinows(t, listen, publicWS)
 	defer stop()
 
@@ -120,8 +120,8 @@ func Test_minows_WithSegment_Empty(t *testing.T) {
 }
 
 func Test_minows_WithSegment(t *testing.T) {
-	const listen = "/ip4/0.0.0.0/tcp/80"
-	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
+	const listen = "/ip4/0.0.0.0/tcp/6000"
+	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
 	m, stop := mustCreateMinows(t, listen, publicWS)
 	defer stop()
 
@@ -134,8 +134,8 @@ func Test_minows_WithSegment(t *testing.T) {
 }
 
 func Test_minows_CreateRPC_InvalidName(t *testing.T) {
-	const listen = "/ip4/0.0.0.0/tcp/80"
-	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
+	const listen = "/ip4/0.0.0.0/tcp/6000"
+	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
 	m, stop := mustCreateMinows(t, listen, publicWS)
 	defer stop()
 
@@ -144,8 +144,8 @@ func Test_minows_CreateRPC_InvalidName(t *testing.T) {
 }
 
 func Test_minows_CreateRPC_AlreadyExists(t *testing.T) {
-	const listen = "/ip4/0.0.0.0/tcp/80"
-	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
+	const listen = "/ip4/0.0.0.0/tcp/6000"
+	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
 	m, stop := mustCreateMinows(t, listen, publicWS)
 	defer stop()
 
@@ -156,8 +156,8 @@ func Test_minows_CreateRPC_AlreadyExists(t *testing.T) {
 }
 
 func Test_minows_CreateRPC_InvalidSegment(t *testing.T) {
-	const listen = "/ip4/0.0.0.0/tcp/80"
-	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
+	const listen = "/ip4/0.0.0.0/tcp/6000"
+	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
 	m, stop := mustCreateMinows(t, listen, publicWS)
 	defer stop()
 	m = m.WithSegment("invalid segment").(*minows)
@@ -167,8 +167,8 @@ func Test_minows_CreateRPC_InvalidSegment(t *testing.T) {
 }
 
 func Test_minows_CreateRPC(t *testing.T) {
-	const listen = "/ip4/0.0.0.0/tcp/80"
-	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
+	const listen = "/ip4/0.0.0.0/tcp/6000"
+	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
 	m, stop := mustCreateMinows(t, listen, publicWS)
 	defer stop()
 
