@@ -136,7 +136,6 @@ func Test_minows_WithSegment(t *testing.T) {
 func Test_minows_CreateRPC_InvalidName(t *testing.T) {
 	const listen = "/ip4/0.0.0.0/tcp/80"
 	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
-	const addrWSS = "/ip4/127.0.0.1/tcp/443/wss"
 	m, stop := mustCreateMinows(t, listen, publicWS)
 	defer stop()
 
