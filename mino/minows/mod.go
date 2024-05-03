@@ -34,7 +34,6 @@ type minows struct {
 // e.g. /ip4/0.0.0.0/tcp/80/ws
 // public: public dial-able address in multiaddress format,
 // e.g. /dns4/p2p-1.c4dt.dela.org/tcp/443/wss
-// todo export, return mino.Mino
 func newMinows(listen, public ma.Multiaddr, secret crypto.PrivKey) (*minows,
 	error) {
 	// create publicly reachable address
