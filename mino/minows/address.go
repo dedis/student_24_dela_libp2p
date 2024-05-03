@@ -17,12 +17,13 @@ const protocolP2P = "/p2p/"
 // address represents a publicly reachable network address that can be used
 // to establish communication with a remote player through libp2p and therefore,
 // must have both `location` and `identity` components.
+// - implements mino.Address
 type address struct {
 	location ma.Multiaddr // required
 	identity peer.ID      // required
 }
 
-// newAddress creates a new address from a publicly reachable location and a
+// newAddress creates a new address from a publicly reachable location with a
 // peer identity.
 func newAddress(location ma.Multiaddr, identity peer.ID) (address, error) {
 	if location == nil || identity.String() == "" {
@@ -64,9 +65,9 @@ type addressFactory struct {
 	serde.Factory
 }
 
-// FromText implements mino.AddressFactory. It returns an instance of an address
-// from a byte slice.
-// Returns nil if fails.
+// FromText returns an instance of an address
+// from a byte slice or nil if anything fails.
+// - implements mino.AddressFactory
 func (f addressFactory) FromText(text []byte) mino.Address {
 	str := string(text)
 	loc, id, found := strings.Cut(str, protocolP2P)

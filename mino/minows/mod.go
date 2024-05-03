@@ -18,7 +18,8 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// Minows implements mino.Mino
+// Minows
+// - implements mino.Mino
 type minows struct {
 	logger zerolog.Logger
 
@@ -29,11 +30,12 @@ type minows struct {
 	rpcs     map[string]any // names
 }
 
-// newMinows
+// newMinows creates a new Minows instance.
 // listen: local listening address in multiaddress format,
 // e.g. /ip4/0.0.0.0/tcp/80/ws
 // public: public dial-able address in multiaddress format,
 // e.g. /dns4/p2p-1.c4dt.dela.org/tcp/443/wss
+// secret: private key representing this mino instance's identity
 func newMinows(listen, public ma.Multiaddr, secret crypto.PrivKey) (*minows,
 	error) {
 	// create publicly reachable address

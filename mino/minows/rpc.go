@@ -17,11 +17,13 @@ import (
 	"golang.org/x/xerrors"
 )
 
-const MaxMessageSize = 1e9 // TODO verify
+const MaxMessageSize = 1e9
+
 const PostfixCall = "/call"
 const PostfixStream = "/stream"
 
-// RPC implements mino.RPC
+// RPC
+// - implements mino.RPC
 type rpc struct {
 	logger zerolog.Logger
 
