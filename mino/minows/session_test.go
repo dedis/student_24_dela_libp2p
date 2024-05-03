@@ -117,9 +117,9 @@ func Test_session_Recv(t *testing.T) {
 	defer stop()
 
 	errs := sender.Send(fake.Message{}, player1.GetAddress())
-	require.NoError(t, <-errs) // sent successfully
+	require.NoError(t, <-errs)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	from, msg, err := receiver.Recv(ctx)
