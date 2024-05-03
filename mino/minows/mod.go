@@ -98,7 +98,8 @@ func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 	if !pattern.MatchString(name) {
 		return nil, xerrors.Errorf("invalid name: %s", name)
 	}
-	if _, found := m.rpcs[name]; found {
+	_, found := m.rpcs[name]
+	if found {
 		return nil, xerrors.Errorf("already exists rpc: %s", name)
 	}
 
