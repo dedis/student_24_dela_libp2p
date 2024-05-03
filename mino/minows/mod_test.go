@@ -19,7 +19,6 @@ func Test_newMinows(t *testing.T) {
 	var tests = map[string]struct {
 		args args
 	}{
-		// 'public' only uses localhost a for local testing
 		"ws": {
 			args: args{
 				listen: listen,

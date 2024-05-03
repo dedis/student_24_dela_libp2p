@@ -28,13 +28,11 @@ func Test_session_Send(t *testing.T) {
 	s, _, stop := mustCreateSession(t, r, player1, player2)
 	defer stop()
 
-	// send to one
 	errs := s.Send(fake.Message{}, player1.GetAddress())
 	err, open := <-errs
 	require.NoError(t, err)
 	require.False(t, open)
 
-	// send to two
 	errs = s.Send(fake.Message{}, player1.GetAddress(), player2.GetAddress())
 	err, open = <-errs
 	require.NoError(t, err)
@@ -118,11 +116,9 @@ func Test_session_Recv(t *testing.T) {
 	sender, receiver, stop := mustCreateSession(t, r, player1, player2)
 	defer stop()
 
-	// sent to one, received once
 	errs := sender.Send(fake.Message{}, player1.GetAddress())
 	require.NoError(t, <-errs) // sent successfully
 
-	// avoid blocking if this test hangs
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -131,10 +127,9 @@ func Test_session_Recv(t *testing.T) {
 	require.Equal(t, player1.GetAddress(), from)
 	require.Equal(t, fake.Message{}, msg)
 
-	// sent to two, received twice
 	errs = sender.Send(fake.Message{}, player1.GetAddress(),
 		player2.GetAddress())
-	require.NoError(t, <-errs) // sent successfully
+	require.NoError(t, <-errs)
 
 	from1, msg, err := receiver.Recv(ctx)
 	require.NoError(t, err)
@@ -163,10 +158,9 @@ func Test_session_Recv_SessionEnded(t *testing.T) {
 
 	sender, receiver, stop := mustCreateSession(t, r, player)
 	errs := sender.Send(fake.Message{}, player.GetAddress())
-	require.NoError(t, <-errs) // sent successfully
+	require.NoError(t, <-errs)
 	stop()
 
-	// avoid blocking if this test hangs
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -188,7 +182,7 @@ func Test_session_Recv_ContextCancelled(t *testing.T) {
 	sender, receiver, stop := mustCreateSession(t, r, player)
 	defer stop()
 	errs := sender.Send(fake.Message{}, player.GetAddress())
-	require.NoError(t, <-errs) // sent successfully
+	require.NoError(t, <-errs)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

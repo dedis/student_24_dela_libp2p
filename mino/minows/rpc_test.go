@@ -171,7 +171,7 @@ func Test_rpc_Stream_NoPlayers(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	players := mino.NewAddresses() // empty
+	players := mino.NewAddresses()
 
 	_, _, err := r.Stream(ctx, players)
 	require.ErrorContains(t, err, "no players")
@@ -224,16 +224,16 @@ func Test_rpc_Stream_ContextCancelled(t *testing.T) {
 }
 
 // testHandler implements mino.Handler
-// Captures received requests for test assertions ands echo back the message
+// Captures received requests for test assertions and
+// echos back the same message
 type testHandler struct{}
 
 func (e testHandler) Process(req mino.Request) (resp serde.Message, err error) {
-	// echo req as reply
 	return req.Message, nil
 }
 
 func (e testHandler) Stream(out mino.Sender, in mino.Receiver) error {
-	for { // keep echoing till session ends/stream resets
+	for {
 		from, msg, err := in.Recv(context.Background())
 		if err != nil {
 			return err
