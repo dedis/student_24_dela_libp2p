@@ -221,7 +221,7 @@ func (r rpc) openStreams(ctx context.Context,
 				<-ctx.Done()
 				err := stream.Reset()
 				if err != nil {
-					r.logger.Error().Err(err).Msg("could not reset stream: %v")
+					r.logger.Error().Err(err).Msg("could not reset stream")
 					return
 				}
 				r.logger.Debug().Msgf("reset stream to %v", addr)
