@@ -114,7 +114,7 @@ func newDelaNode(t require.TestingT, path string, port int, kind string) dela {
 		require.NoError(t, err)
 
 		storage := key.NewStorage(db)
-		key, err := storage.LoadOrCreate()
+		key, _ := storage.LoadOrCreate()
 
 		onet, err = minows.NewMinows(listen, nil, key)
 		require.NoError(t, err)
