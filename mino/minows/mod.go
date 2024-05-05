@@ -36,7 +36,7 @@ type minows struct {
 // e.g. /ip4/0.0.0.0/tcp/0/ todo add test or /ip4/127.0.0.1/tcp/80/ws
 // public: public dial-able address in multiaddress format,
 // e.g. /dns4/p2p-1.c4dt.dela.org/tcp/443/wss
-// If `listen` is localhost, `public` can be nil and will be determined
+// `public` can be nil and will be determined
 // by the listening address and the port the host has bound to.
 // key: private key representing this mino instance's identity
 func NewMinows(listen, public ma.Multiaddr, key crypto.PrivKey) (mino.Mino,
@@ -47,12 +47,7 @@ func NewMinows(listen, public ma.Multiaddr, key crypto.PrivKey) (mino.Mino,
 	}
 
 	if public == nil {
-		const localhost = "127.0.0.1"
-		listening, ok := findAddress(h, ma.P_IP4, localhost)
-		if !ok {
-			return nil, xerrors.Errorf("no local listening address found")
-		}
-		public = listening
+		public = h.Addrs()[0]
 	}
 
 	myAddr, err := newAddress(public, h.ID())
@@ -130,14 +125,4 @@ func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 
 func (m *minows) stop() error {
 	return m.host.Close()
-}
-
-func findAddress(h host.Host, protocol int, value string) (ma.Multiaddr, bool) {
-	for _, addr := range h.Addrs() {
-		ip, err := addr.ValueForProtocol(protocol)
-		if err == nil && ip == value {
-			return addr, true
-		}
-	}
-	return nil, false
 }
