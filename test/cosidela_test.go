@@ -86,8 +86,11 @@ func newDelaNode(t require.TestingT, path string, port int, kind string) dela {
 	require.NoError(t, err)
 
 	// mino
-	router := tree.NewRouter(minogrpc.NewAddressFactory())
-	addr := minogrpc.ParseAddress("127.0.0.1", uint16(port))
+	var onet mino.Mino
+	switch kind {
+	case "grpc":
+		router := tree.NewRouter(minogrpc.NewAddressFactory())
+		addr := minogrpc.ParseAddress("127.0.0.1", uint16(port))
 
 		certs := certs.NewDiskStore(db, session.AddressFactory{})
 
@@ -109,9 +112,10 @@ func newDelaNode(t require.TestingT, path string, port int, kind string) dela {
 	case "ws":
 		addr, err := ma.NewMultiaddr(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", port))
 		require.NoError(t, err)
+		// TODO use DiskStore
 		secret, err := minows.LoadSecret(filepath.Join(path, "p2p.key"))
 		require.NoError(t, err)
-		onet, err = minows.NewMinows(addr, addr, secret)
+		onet, err = minows.NewMinowsLocal(addr, secret)
 		require.NoError(t, err)
 	}
 	onet.GetAddress()
