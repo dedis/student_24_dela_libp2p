@@ -1,14 +1,13 @@
 package minows
 
 import (
-	"crypto/rand"
-	"github.com/libp2p/go-libp2p/core/crypto"
 	ma "github.com/multiformats/go-multiaddr"
 	"go.dedis.ch/dela/cli"
 	"go.dedis.ch/dela/cli/node"
-	"go.dedis.ch/dela/crypto/loader"
+	"go.dedis.ch/dela/core/store/kv"
+	"go.dedis.ch/dela/mino"
+	"go.dedis.ch/dela/mino/minows/secret"
 	"golang.org/x/xerrors"
-	"path/filepath"
 )
 
 // controller
@@ -23,17 +22,23 @@ func NewController() node.Initializer {
 func (c controller) SetCommands(builder node.Builder) {
 	builder.SetStartFlags(
 		cli.StringFlag{
-			Name:     "listen",
-			Usage:    "set the address to listen on",
-			Required: true,
-			// default all interfaces
-			Value: "/ip4/0.0.0.0/tcp/80",
+			Name: "listen",
+			Usage: "set the address to listen on (default all interfaces, " +
+				"random port)",
+			Required: false,
+			Value:    "/ip4/0.0.0.0/tcp/0",
 		},
 		cli.StringFlag{
-			Name:     "public",
-			Usage:    "set the publicly reachable address",
-			Required: true,
+			Name: "public",
+			Usage: "set the publicly reachable address (" +
+				"default listen address)",
+			Required: false,
 			Value:    "",
+		},
+		cli.StringFlag{
+			Name:     "name",
+			Usage:    "used to fetch the secret in db (e.g. node-1)",
+			Required: true,
 		},
 	)
 }
@@ -43,16 +48,31 @@ func (c controller) OnStart(flags cli.Flags, inj node.Injector) error {
 	if err != nil {
 		return xerrors.Errorf("could not parse listen addr: %v", err)
 	}
-	public, err := ma.NewMultiaddr(flags.String("public"))
+
+	var db kv.DB
+	err = inj.Resolve(&db)
 	if err != nil {
-		return xerrors.Errorf("could not parse public addr: %v", err)
+		return xerrors.Errorf("could not resolve db: %v", err)
 	}
-	secret, err := loadSecret(filepath.Join(flags.Path("config"), "priv.key"))
+	storage := secret.NewStorage(db, addressFactory{})
+	secret, err := storage.LoadOrCreate(flags.String("name"))
 	if err != nil {
-		return err
+		return xerrors.Errorf("could not load secret: %v", err)
 	}
-	m, err := newMinows(listen, public, secret)
-	if err != nil {
+
+	var m mino.Mino
+	var e error
+	p := flags.String("public")
+	if p == "" {
+		m, e = newMinowsLocal(listen, secret)
+	} else {
+		public, err := ma.NewMultiaddr(p)
+		if err != nil {
+			return xerrors.Errorf("could not parse public addr: %v", err)
+		}
+		m, e = newMinows(listen, public, secret)
+	}
+	if e != nil {
 		return xerrors.Errorf("could not start mino: %v", err)
 	}
 	inj.Inject(m)
@@ -70,36 +90,4 @@ func (c controller) OnStop(inj node.Injector) error {
 		return xerrors.Errorf("could not stop mino: %v", err)
 	}
 	return nil
-}
-
-func loadSecret(path string) (crypto.PrivKey, error) {
-	// TODO use DiskStore instead？
-	keyLoader := loader.NewFileLoader(path)
-	bytes, err := keyLoader.LoadOrCreate(newGenerator())
-	if err != nil {
-		return nil, xerrors.Errorf("could not load key: %v", err)
-	}
-	private, err := crypto.UnmarshalPrivateKey(bytes)
-	if err != nil {
-		return nil, xerrors.Errorf("could not unmarshal key: %v", err)
-	}
-	return private, nil
-}
-
-type generator struct{}
-
-func (g generator) Generate() ([]byte, error) {
-	private, _, err := crypto.GenerateEd25519Key(rand.Reader)
-	if err != nil {
-		return nil, xerrors.Errorf("could not generate keys: %v", err)
-	}
-	bytes, err := crypto.MarshalPrivateKey(private)
-	if err != nil {
-		return nil, xerrors.Errorf("could not marshal key: %v", err)
-	}
-	return bytes, nil
-}
-
-func newGenerator() loader.Generator {
-	return generator{}
 }
