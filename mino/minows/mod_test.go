@@ -74,7 +74,7 @@ func Test_minows_GetAddressFactory(t *testing.T) {
 }
 
 func Test_minows_GetAddress(t *testing.T) {
-	const listen = "/ip4/0.0.0.0/tcp/80"
+	const listen = "/ip4/0.0.0.0/tcp/6000"
 	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
 	const publicWSS = "/ip4/127.0.0.1/tcp/443/wss"
 	secret := mustCreateSecret(t)
