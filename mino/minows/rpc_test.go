@@ -139,7 +139,7 @@ func Test_rpc_Call_ContextCancelled(t *testing.T) {
 	cancel()
 	responses, _ := r.Call(ctx, req, players)
 	res, ok := <-responses
-	require.False(t, ok, "expected no response: %s", res)
+	require.False(t, ok, "expected no response: %v", res)
 }
 
 func Test_rpc_Stream(t *testing.T) {

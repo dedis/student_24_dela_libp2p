@@ -71,6 +71,7 @@ func (r rpc) Call(ctx context.Context, req serde.Message,
 				r.logger.Debug().Msg("call context done. exiting...")
 				return
 			case res := <-results:
+				r.logger.Debug().Msg("call stream opened. unicasting...")
 				if res.err != nil {
 					responses <- mino.NewResponseWithError(res.remote, res.err)
 					return
