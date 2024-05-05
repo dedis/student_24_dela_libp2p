@@ -133,13 +133,13 @@ func Test_rpc_Call_ContextCancelled(t *testing.T) {
 	mustCreateRPC(t, player, "test", testHandler{})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
 	req := fake.Message{}
 	players := mino.NewAddresses(player.GetAddress())
 
+	cancel()
 	responses, _ := r.Call(ctx, req, players)
-	_, ok := <-responses
-	require.False(t, ok)
+	res, ok := <-responses
+	require.False(t, ok, "expected no response: %s", res)
 }
 
 func Test_rpc_Stream(t *testing.T) {
@@ -217,6 +217,7 @@ func Test_rpc_Stream_ContextCancelled(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	players := mino.NewAddresses(player.GetAddress())
+
 	cancel()
 
 	_, _, err := r.Stream(ctx, players)
@@ -243,7 +244,6 @@ func (e testHandler) Stream(out mino.Sender, in mino.Receiver) error {
 			return err
 		}
 	}
-	return nil
 }
 
 func mustCreateRPC(t *testing.T, m mino.Mino, name string,

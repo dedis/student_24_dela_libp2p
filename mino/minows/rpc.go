@@ -68,6 +68,8 @@ func (r rpc) Call(ctx context.Context, req serde.Message,
 
 			select {
 			case <-ctx.Done():
+				r.logger.Debug().Msg("call context done. exiting...")
+				return
 			case res := <-results:
 				if res.err != nil {
 					responses <- mino.NewResponseWithError(res.remote, res.err)
