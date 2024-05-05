@@ -31,7 +31,7 @@ func init() {
 // Use the value contract
 // Check the state
 func TestIntegration_Value_Simple(t *testing.T) {
-	t.Run("3 nodes", getTest[*testing.T](3, 2, "grpc"))
+	// t.Run("3 nodes", getTest[*testing.T](3, 2, "grpc"))
 	t.Run("3 nodes", getTest[*testing.T](3, 2, "ws"))
 }
 

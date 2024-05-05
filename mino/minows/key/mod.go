@@ -12,7 +12,8 @@ type Storage interface {
 	LoadOrCreate() (crypto.PrivKey, error)
 }
 
-// NewStorage creates a new private key storage with caching for efficient access.
+// NewStorage creates a new private key storage
+// with caching for efficient access.
 func NewStorage(db kv.DB) Storage {
 	return newMemoryStore(db)
 }
