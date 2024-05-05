@@ -33,9 +33,11 @@ type minows struct {
 
 // NewMinows creates a new Minows instance that starts listening.
 // listen: local listening address in multiaddress format,
-// e.g. /ip4/0.0.0.0/tcp/80/ws
+// e.g. /ip4/0.0.0.0/tcp/0/ todo add test or /ip4/127.0.0.1/tcp/80/ws
 // public: public dial-able address in multiaddress format,
 // e.g. /dns4/p2p-1.c4dt.dela.org/tcp/443/wss
+// If `listen` is localhost, `public` can be nil and
+// will determined by the listening address and the port the host has bound to.
 // secret: private key representing this mino instance's identity
 func NewMinows(listen, public ma.Multiaddr, secret crypto.PrivKey) (mino.Mino,
 	error) {
@@ -44,7 +46,7 @@ func NewMinows(listen, public ma.Multiaddr, secret crypto.PrivKey) (mino.Mino,
 		return nil, xerrors.Errorf("could not start host: %v", err)
 	}
 
-	if public.Equal(listen) {
+	if public == nil {
 		const localhost = "127.0.0.1"
 		listening, ok := findAddress(h, ma.P_IP4, localhost)
 		if !ok {
@@ -66,16 +68,6 @@ func NewMinows(listen, public ma.Multiaddr, secret crypto.PrivKey) (mino.Mino,
 		context:  json.NewContext(),
 		rpcs:     make(map[string]any),
 	}, nil
-}
-
-// NewMinowsLocal creates a new Minows instance with the local `listen`
-// address as the public dial-able address.
-// If `listen` has TCP port 0,
-// it will be replaced with the actual port the host is listening on.
-// This is useful for testing.
-func NewMinowsLocal(listen ma.Multiaddr, secret crypto.PrivKey) (mino.Mino,
-	error) {
-	return NewMinows(listen, listen, secret)
 }
 
 func (m *minows) GetAddressFactory() mino.AddressFactory {

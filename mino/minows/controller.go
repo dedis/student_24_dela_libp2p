@@ -5,7 +5,6 @@ import (
 	"go.dedis.ch/dela/cli"
 	"go.dedis.ch/dela/cli/node"
 	"go.dedis.ch/dela/core/store/kv"
-	"go.dedis.ch/dela/mino"
 	"go.dedis.ch/dela/mino/minows/secret"
 	"golang.org/x/xerrors"
 )
@@ -26,13 +25,13 @@ func (c controller) SetCommands(builder node.Builder) {
 			Usage: "set the address to listen on (default all interfaces, " +
 				"random port)",
 			Required: false,
-			Value:    "/ip4/0.0.0.0/tcp/0",
+			Value:    "/ip4/0.0.0.0/tcp/0", // todo add test
 		},
 		cli.StringFlag{
 			Name: "public",
 			Usage: "set the publicly reachable address (" +
 				"default listen address)",
-			Required: false,
+			Required: false, // todo add test
 			Value:    "",
 		},
 		cli.StringFlag{
@@ -60,19 +59,17 @@ func (c controller) OnStart(flags cli.Flags, inj node.Injector) error {
 		return xerrors.Errorf("could not load secret: %v", err)
 	}
 
-	var m mino.Mino
-	var e error
+	var public ma.Multiaddr
 	p := flags.String("public")
-	if p == "" {
-		m, e = newMinowsLocal(listen, secret)
-	} else {
-		public, err := ma.NewMultiaddr(p)
+	if p != "" {
+		public, err = ma.NewMultiaddr(p)
 		if err != nil {
 			return xerrors.Errorf("could not parse public addr: %v", err)
 		}
-		m, e = newMinows(listen, public, secret)
 	}
-	if e != nil {
+
+	m, err := NewMinows(listen, public, secret)
+	if err != nil {
 		return xerrors.Errorf("could not start mino: %v", err)
 	}
 	inj.Inject(m)
