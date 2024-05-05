@@ -20,7 +20,6 @@ func NewController() node.Initializer {
 
 const flagListen = "listen"
 const flagPublic = "public"
-const flagName = "name"
 
 func (c controller) SetCommands(builder node.Builder) {
 	builder.SetStartFlags(
