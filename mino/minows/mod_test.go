@@ -4,42 +4,54 @@ import (
 	"crypto/rand"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
 	"go.dedis.ch/dela/mino"
 	"testing"
 )
 
-func Test_newMinows(t *testing.T) {
+func TestNewMinows(t *testing.T) {
 	const listen = "/ip4/0.0.0.0/tcp/6000/ws"
+	const random = "/ip4/127.0.0.1/tcp/0/ws"
 	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
 	const publicWSS = "/ip4/127.0.0.1/tcp/443/wss"
 	type args struct {
-		listen string
-		public string
+		listen ma.Multiaddr
+		public ma.Multiaddr
 	}
 	var tests = map[string]struct {
 		args args
 	}{
 		"ws": {
 			args: args{
-				listen: listen,
-				public: publicWS,
+				listen: mustCreateMultiaddress(t, listen),
+				public: mustCreateMultiaddress(t, publicWS),
 			},
 		},
 		"wss": {
 			args: args{
-				listen: listen,
-				public: publicWSS,
+				listen: mustCreateMultiaddress(t, listen),
+				public: mustCreateMultiaddress(t, publicWSS),
+			},
+		},
+		"no public": {
+			args: args{
+				listen: mustCreateMultiaddress(t, listen),
+				public: nil,
+			},
+		},
+		"random": {
+			args: args{
+				listen: mustCreateMultiaddress(t, random),
+				public: nil,
 			},
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			listen := mustCreateMultiaddress(t, tt.args.listen)
-			public := mustCreateMultiaddress(t, tt.args.public)
 			key := mustCreateKey(t)
 
-			m, err := NewMinows(listen, public, key)
+			m, err := NewMinows(tt.args.listen, tt.args.public, key)
 			require.NoError(t, err)
 			require.NotNil(t, m)
 			require.IsType(t, &minows{}, m)
@@ -75,7 +87,7 @@ func Test_minows_GetAddressFactory(t *testing.T) {
 }
 
 func Test_minows_GetAddress(t *testing.T) {
-	const listen = "/ip4/0.0.0.0/tcp/6000"
+	const listen = "/ip4/127.0.0.1/tcp/6000"
 	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
 	const publicWSS = "/ip4/127.0.0.1/tcp/443/wss"
 	key := mustCreateKey(t)
@@ -93,8 +105,9 @@ func Test_minows_GetAddress(t *testing.T) {
 		m    m
 		want want
 	}{
-		"ws":  {m{listen, publicWS, key}, want{publicWS, id}},
-		"wss": {m{listen, publicWSS, key}, want{publicWSS, id}},
+		"ws":        {m{listen, publicWS, key}, want{publicWS, id}},
+		"wss":       {m{listen, publicWSS, key}, want{publicWSS, id}},
+		"no public": {m{listen, "", key}, want{listen, id}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -108,6 +121,20 @@ func Test_minows_GetAddress(t *testing.T) {
 			require.Equal(t, want, got)
 		})
 	}
+}
+
+func Test_minows_GetAddress_Random(t *testing.T) {
+	random := "/ip4/127.0.0.1/tcp/0/ws"
+	listen := mustCreateMultiaddress(t, random)
+	key := mustCreateKey(t)
+	m, err := NewMinows(listen, nil, key)
+	require.NoError(t, err)
+	defer require.NoError(t, m.(*minows).stop())
+
+	got := m.GetAddress().(address)
+	port, err := got.location.ValueForProtocol(ma.P_TCP)
+	require.NoError(t, err)
+	require.NotEqual(t, 0, port)
 }
 
 func Test_minows_WithSegment_Empty(t *testing.T) {

@@ -30,6 +30,7 @@ func (s *diskStorage) LoadOrCreate() (crypto.PrivKey, error) {
 		}
 		stored := bucket.Get(key)
 		if stored != nil {
+			buffer = make([]byte, len(stored))
 			copy(buffer, stored)
 			return nil
 		}
@@ -47,6 +48,7 @@ func (s *diskStorage) LoadOrCreate() (crypto.PrivKey, error) {
 		if err != nil {
 			return xerrors.Errorf("could not store key: %v", err)
 		}
+		buffer = make([]byte, len(generated))
 		copy(buffer, generated)
 		return nil
 	})
