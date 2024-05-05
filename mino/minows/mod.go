@@ -32,13 +32,13 @@ type minows struct {
 	rpcs     map[string]any
 }
 
-// newMinows creates a new Minows instance.
+// NewMinows creates a new Minows instance.
 // listen: local listening address in multiaddress format,
 // e.g. /ip4/0.0.0.0/tcp/80/ws
 // public: public dial-able address in multiaddress format,
 // e.g. /dns4/p2p-1.c4dt.dela.org/tcp/443/wss
 // secret: private key representing this mino instance's identity
-func newMinows(listen, public ma.Multiaddr, secret crypto.PrivKey) (*minows,
+func NewMinows(listen, public ma.Multiaddr, secret crypto.PrivKey) (mino.Mino,
 	error) {
 	id, err := peer.IDFromPrivateKey(secret)
 	if err != nil {
@@ -56,7 +56,7 @@ func newMinows(listen, public ma.Multiaddr, secret crypto.PrivKey) (*minows,
 
 	return &minows{
 		logger:   dela.Logger.With().Str("mino", myAddr.String()).Logger(),
-		myAddr:   myAddr,
+		myAddr:   myAddr, // TODO replace localhost port 0 with actual port
 		segments: nil,
 		host:     h,
 		context:  json.NewContext(),

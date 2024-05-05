@@ -47,11 +47,12 @@ func (c controller) OnStart(flags cli.Flags, inj node.Injector) error {
 	if err != nil {
 		return xerrors.Errorf("could not parse public addr: %v", err)
 	}
-	secret, err := loadSecret(filepath.Join(flags.Path("config"), "priv.key"))
+	secret, err := LoadSecret(filepath.Join(flags.Path("config"),
+		"p2p.key"))
 	if err != nil {
 		return err
 	}
-	m, err := newMinows(listen, public, secret)
+	m, err := NewMinows(listen, public, secret)
 	if err != nil {
 		return xerrors.Errorf("could not start mino: %v", err)
 	}
@@ -72,7 +73,7 @@ func (c controller) OnStop(inj node.Injector) error {
 	return nil
 }
 
-func loadSecret(path string) (crypto.PrivKey, error) {
+func LoadSecret(path string) (crypto.PrivKey, error) {
 	// TODO use DiskStore instead？
 	keyLoader := loader.NewFileLoader(path)
 	bytes, err := keyLoader.LoadOrCreate(newGenerator())

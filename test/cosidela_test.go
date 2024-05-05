@@ -5,6 +5,9 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/x509"
+	"fmt"
+	ma "github.com/multiformats/go-multiaddr"
+	"go.dedis.ch/dela/mino/minows"
 	"io"
 	"math/rand"
 	"net/url"
@@ -74,7 +77,7 @@ type cosiDelaNode struct {
 	tree          hashtree.Tree
 }
 
-func newDelaNode(t require.TestingT, path string, port int) dela {
+func newDelaNode(t require.TestingT, path string, port int, kind string) dela {
 	err := os.MkdirAll(path, 0700)
 	require.NoError(t, err)
 
@@ -86,28 +89,35 @@ func newDelaNode(t require.TestingT, path string, port int) dela {
 	router := tree.NewRouter(minogrpc.NewAddressFactory())
 	addr := minogrpc.ParseAddress("127.0.0.1", uint16(port))
 
-	certs := certs.NewDiskStore(db, session.AddressFactory{})
+		certs := certs.NewDiskStore(db, session.AddressFactory{})
 
-	fload := loader.NewFileLoader(filepath.Join(path, certKeyName))
+		fload := loader.NewFileLoader(filepath.Join(path, certKeyName))
+		keydata, err := fload.LoadOrCreate(newCertGenerator(rand.New(rand.NewSource(0)),
+			elliptic.P521()))
+		require.NoError(t, err)
 
-	keydata, err := fload.LoadOrCreate(newCertGenerator(rand.New(rand.NewSource(0)),
-		elliptic.P521()))
-	require.NoError(t, err)
+		key, err := x509.ParseECPrivateKey(keydata)
+		require.NoError(t, err)
 
-	key, err := x509.ParseECPrivateKey(keydata)
-	require.NoError(t, err)
+		opts := []minogrpc.Option{
+			minogrpc.WithStorage(certs),
+			minogrpc.WithCertificateKey(key, key.Public()),
+		}
 
-	opts := []minogrpc.Option{
-		minogrpc.WithStorage(certs),
-		minogrpc.WithCertificateKey(key, key.Public()),
+		onet, err = minogrpc.NewMinogrpc(addr, nil, router, opts...)
+		require.NoError(t, err)
+	case "ws":
+		addr, err := ma.NewMultiaddr(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", port))
+		require.NoError(t, err)
+		secret, err := minows.LoadSecret(filepath.Join(path, "p2p.key"))
+		require.NoError(t, err)
+		onet, err = minows.NewMinows(addr, addr, secret)
+		require.NoError(t, err)
 	}
-
-	onet, err := minogrpc.NewMinogrpc(addr, nil, router, opts...)
-	require.NoError(t, err)
 	onet.GetAddress()
 
 	// ordering + validation + execution
-	fload = loader.NewFileLoader(filepath.Join(path, privateKeyFile))
+	fload := loader.NewFileLoader(filepath.Join(path, privateKeyFile))
 
 	signerdata, err := fload.LoadOrCreate(newKeyGenerator())
 	require.NoError(t, err)
