@@ -10,7 +10,6 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	ma "github.com/multiformats/go-multiaddr"
 	"go.dedis.ch/dela/mino"
@@ -32,36 +31,51 @@ type minows struct {
 	rpcs     map[string]any
 }
 
-// newMinows creates a new Minows instance.
+// NewMinows creates a new Minows instance that starts listening.
 // listen: local listening address in multiaddress format,
 // e.g. /ip4/0.0.0.0/tcp/80/ws
 // public: public dial-able address in multiaddress format,
 // e.g. /dns4/p2p-1.c4dt.dela.org/tcp/443/wss
 // secret: private key representing this mino instance's identity
-func newMinows(listen, public ma.Multiaddr, secret crypto.PrivKey) (*minows,
+func NewMinows(listen, public ma.Multiaddr, secret crypto.PrivKey) (mino.Mino,
 	error) {
-	id, err := peer.IDFromPrivateKey(secret)
-	if err != nil {
-		return nil, xerrors.Errorf("could not derive identity: %w", err)
-	}
-	myAddr, err := newAddress(public, id)
-	if err != nil {
-		return nil, xerrors.Errorf("could not create address: %v", err)
-	}
-
 	h, err := libp2p.New(libp2p.ListenAddrs(listen), libp2p.Identity(secret))
 	if err != nil {
-		return nil, xerrors.Errorf("could not create host: %v", err)
+		return nil, xerrors.Errorf("could not start host: %v", err)
+	}
+
+	if public.Equal(listen) {
+		const localhost = "127.0.0.1"
+		listening, ok := findAddress(h, ma.P_IP4, localhost)
+		if !ok {
+			return nil, xerrors.Errorf("no local listening address found")
+		}
+		public = listening
+	}
+
+	myAddr, err := newAddress(public, h.ID())
+	if err != nil {
+		return nil, xerrors.Errorf("could not create public address: %v", err)
 	}
 
 	return &minows{
 		logger:   dela.Logger.With().Str("mino", myAddr.String()).Logger(),
-		myAddr:   myAddr,
+		myAddr:   myAddr, // TODO replace localhost port 0 with actual port
 		segments: nil,
 		host:     h,
 		context:  json.NewContext(),
 		rpcs:     make(map[string]any),
 	}, nil
+}
+
+// NewMinowsLocal creates a new Minows instance with the local `listen`
+// address as the public dial-able address.
+// If `listen` has TCP port 0,
+// it will be replaced with the actual port the host is listening on.
+// This is useful for testing.
+func NewMinowsLocal(listen ma.Multiaddr, secret crypto.PrivKey) (mino.Mino,
+	error) {
+	return NewMinows(listen, listen, secret)
 }
 
 func (m *minows) GetAddressFactory() mino.AddressFactory {
@@ -124,4 +138,14 @@ func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 
 func (m *minows) stop() error {
 	return m.host.Close()
+}
+
+func findAddress(h host.Host, protocol int, value string) (ma.Multiaddr, bool) {
+	for _, addr := range h.Addrs() {
+		ip, err := addr.ValueForProtocol(protocol)
+		if err == nil && ip == value {
+			return addr, true
+		}
+	}
+	return nil, false
 }

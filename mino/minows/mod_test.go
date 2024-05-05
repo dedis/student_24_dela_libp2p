@@ -5,6 +5,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/require"
+	"go.dedis.ch/dela/mino"
 	"testing"
 )
 
@@ -38,11 +39,11 @@ func Test_newMinows(t *testing.T) {
 			public := mustCreateMultiaddress(t, tt.args.public)
 			secret := mustCreateSecret(t)
 
-			m, err := newMinows(listen, public, secret)
+			m, err := NewMinows(listen, public, secret)
 			require.NoError(t, err)
 			require.NotNil(t, m)
 			require.IsType(t, &minows{}, m)
-			require.NoError(t, m.stop())
+			require.NoError(t, m.(*minows).stop())
 		})
 	}
 }
@@ -97,10 +98,10 @@ func Test_minows_GetAddress(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			m, err := newMinows(mustCreateMultiaddress(t, tt.m.listen),
+			m, err := NewMinows(mustCreateMultiaddress(t, tt.m.listen),
 				mustCreateMultiaddress(t, tt.m.public), tt.m.secret)
 			require.NoError(t, err)
-			defer require.NoError(t, m.stop())
+			defer require.NoError(t, m.(*minows).stop())
 			want := mustCreateAddress(t, tt.want.location, tt.want.identity)
 
 			got := m.GetAddress()
@@ -188,12 +189,13 @@ func Test_minows_CreateRPC(t *testing.T) {
 	require.NotNil(t, r4)
 }
 
-func mustCreateMinows(t *testing.T, listen string, public string) (*minows, func()) {
+func mustCreateMinows(t *testing.T, listen string, public string) (mino.Mino,
+	func()) {
 	secret := mustCreateSecret(t)
-	m, err := newMinows(mustCreateMultiaddress(t, listen),
+	m, err := NewMinows(mustCreateMultiaddress(t, listen),
 		mustCreateMultiaddress(t, public), secret) // starts listening
 	require.NoError(t, err)
-	stop := func() { require.NoError(t, m.stop()) }
+	stop := func() { require.NoError(t, m.(*minows).stop()) }
 	return m, stop
 }
 
