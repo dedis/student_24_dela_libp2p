@@ -3,27 +3,26 @@ package secret
 import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"go.dedis.ch/dela/core/store/kv"
-	"go.dedis.ch/dela/mino"
 	"golang.org/x/xerrors"
 	"sync"
 )
 
-// cacheStorage offers a layer of in-memory caching on top of a diskStorage.
-type cacheStorage struct {
+// cachedStorage offers a layer of in-memory caching on top of a diskStorage.
+type cachedStorage struct {
 	sync.Mutex
 	*diskStorage
 
 	secret map[string]crypto.PrivKey
 }
 
-func newMemoryStore(db kv.DB, factory mino.AddressFactory) *cacheStorage {
-	return &cacheStorage{
-		diskStorage: newDiskStore(db, factory),
+func newMemoryStore(db kv.DB) *cachedStorage {
+	return &cachedStorage{
+		diskStorage: newDiskStore(db),
 		secret:      make(map[string]crypto.PrivKey),
 	}
 }
 
-func (s *cacheStorage) LoadOrCreate(name string) (crypto.PrivKey, error) {
+func (s *cachedStorage) LoadOrCreate(name string) (crypto.PrivKey, error) {
 	s.Lock()
 	defer s.Unlock()
 

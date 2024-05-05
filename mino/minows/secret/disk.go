@@ -4,22 +4,19 @@ import (
 	"crypto/rand"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"go.dedis.ch/dela/core/store/kv"
-	"go.dedis.ch/dela/mino"
 	"golang.org/x/xerrors"
 )
 
 // diskStorage provides persistent storage for secrets on disk.
 type diskStorage struct {
-	bucket  []byte
-	db      kv.DB
-	factory mino.AddressFactory
+	bucket []byte
+	db     kv.DB
 }
 
-func newDiskStore(db kv.DB, factory mino.AddressFactory) *diskStorage {
+func newDiskStore(db kv.DB) *diskStorage {
 	return &diskStorage{
-		bucket:  []byte("secrets"),
-		db:      db,
-		factory: factory,
+		bucket: []byte("secrets"),
+		db:     db,
 	}
 }
 

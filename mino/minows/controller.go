@@ -18,24 +18,28 @@ func NewController() node.Initializer {
 	return controller{}
 }
 
+const flagListen = "listen"
+const flagPublic = "public"
+const flagName = "name"
+
 func (c controller) SetCommands(builder node.Builder) {
 	builder.SetStartFlags(
 		cli.StringFlag{
-			Name: "listen",
+			Name: flagListen,
 			Usage: "set the address to listen on (default all interfaces, " +
 				"random port)",
 			Required: false,
 			Value:    "/ip4/0.0.0.0/tcp/0", // todo add test
 		},
 		cli.StringFlag{
-			Name: "public",
+			Name: flagPublic,
 			Usage: "set the publicly reachable address (" +
 				"default listen address)",
 			Required: false, // todo add test
 			Value:    "",
 		},
 		cli.StringFlag{
-			Name:     "name",
+			Name:     flagName,
 			Usage:    "used to fetch the secret in db (e.g. node-1)",
 			Required: true,
 		},
@@ -43,7 +47,7 @@ func (c controller) SetCommands(builder node.Builder) {
 }
 
 func (c controller) OnStart(flags cli.Flags, inj node.Injector) error {
-	listen, err := ma.NewMultiaddr(flags.String("listen"))
+	listen, err := ma.NewMultiaddr(flags.String(flagListen))
 	if err != nil {
 		return xerrors.Errorf("could not parse listen addr: %v", err)
 	}
@@ -53,14 +57,14 @@ func (c controller) OnStart(flags cli.Flags, inj node.Injector) error {
 	if err != nil {
 		return xerrors.Errorf("could not resolve db: %v", err)
 	}
-	storage := secret.NewStorage(db, addressFactory{})
-	secret, err := storage.LoadOrCreate(flags.String("name"))
+	storage := secret.NewStorage(db)
+	secret, err := storage.LoadOrCreate(flags.String(flagName))
 	if err != nil {
 		return xerrors.Errorf("could not load secret: %v", err)
 	}
 
 	var public ma.Multiaddr
-	p := flags.String("public")
+	p := flags.String(flagPublic)
 	if p != "" {
 		public, err = ma.NewMultiaddr(p)
 		if err != nil {

@@ -5,6 +5,9 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/x509"
+	ma "github.com/multiformats/go-multiaddr"
+	"go.dedis.ch/dela/mino/minows"
+	"go.dedis.ch/dela/mino/minows/secret"
 	"io"
 	"math/rand"
 	"net/url"
@@ -107,7 +110,14 @@ func newDelaNode(t require.TestingT, path string, port int, kind string) dela {
 		onet, err = minogrpc.NewMinogrpc(addr, nil, router, opts...)
 		require.NoError(t, err)
 	case "ws":
-		// TODO implement
+		listen, err := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/0/ws")
+		require.NoError(t, err)
+
+		storage := secret.NewStorage(db)
+		secret, err := storage.LoadOrCreate(filepath.Base(path))
+
+		onet, err = minows.NewMinows(listen, nil, secret)
+		require.NoError(t, err)
 	}
 	onet.GetAddress()
 
