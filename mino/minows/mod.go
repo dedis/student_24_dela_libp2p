@@ -33,7 +33,7 @@ type minows struct {
 
 // NewMinows creates a new Minows instance that starts listening.
 // listen: listening address in multiaddress format,
-// e.g. /ip4/0.0.0.0/tcp/0/ todo add test or /ip4/127.0.0.1/tcp/80/ws
+// e.g. /ip4/0.0.0.0/tcp/0/ or /ip4/127.0.0.1/tcp/80/ws
 // public: public dial-able address in multiaddress format,
 // e.g. /dns4/p2p-1.c4dt.dela.org/tcp/443/wss
 // `public` can be nil and will be determined
@@ -49,7 +49,6 @@ func NewMinows(listen, public ma.Multiaddr, key crypto.PrivKey) (mino.Mino,
 	if public == nil {
 		public = h.Addrs()[0]
 	}
-
 	myAddr, err := newAddress(public, h.ID())
 	if err != nil {
 		return nil, xerrors.Errorf("could not create public address: %v", err)
@@ -57,7 +56,7 @@ func NewMinows(listen, public ma.Multiaddr, key crypto.PrivKey) (mino.Mino,
 
 	return &minows{
 		logger:   dela.Logger.With().Str("mino", myAddr.String()).Logger(),
-		myAddr:   myAddr, // TODO replace localhost port 0 with actual port
+		myAddr:   myAddr,
 		segments: nil,
 		host:     h,
 		context:  json.NewContext(),

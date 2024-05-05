@@ -28,13 +28,13 @@ func (c controller) SetCommands(builder node.Builder) {
 			Usage: "set the address to listen on (default all interfaces, " +
 				"random port)",
 			Required: false,
-			Value:    "/ip4/0.0.0.0/tcp/0", // todo add test
+			Value:    "/ip4/0.0.0.0/tcp/0",
 		},
 		cli.StringFlag{
 			Name: flagPublic,
 			Usage: "set the publicly reachable address (" +
 				"default listen address)",
-			Required: false, // todo add test
+			Required: false,
 			Value:    "",
 		},
 	)
