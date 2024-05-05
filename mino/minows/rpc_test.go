@@ -138,9 +138,6 @@ func Test_rpc_Call_ContextCancelled(t *testing.T) {
 
 	cancel()
 	responses, _ := r.Call(ctx, req, players)
-	// One response may still come through if task completes in another
-	// goroutine due to context switching,
-	// ang Go randomly executes a select case
 	<-responses
 	_, ok := <-responses
 	require.False(t, ok)
@@ -223,7 +220,6 @@ func Test_rpc_Stream_ContextCancelled(t *testing.T) {
 	players := mino.NewAddresses(player.GetAddress())
 
 	cancel()
-
 	_, _, err := r.Stream(ctx, players)
 	require.Error(t, err)
 }
