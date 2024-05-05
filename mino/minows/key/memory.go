@@ -1,4 +1,4 @@
-package secret
+package key
 
 import (
 	"github.com/libp2p/go-libp2p/core/crypto"
@@ -12,30 +12,28 @@ type cachedStorage struct {
 	sync.Mutex
 	*diskStorage
 
-	secret map[string]crypto.PrivKey
+	key crypto.PrivKey
 }
 
 func newMemoryStore(db kv.DB) *cachedStorage {
 	return &cachedStorage{
 		diskStorage: newDiskStore(db),
-		secret:      make(map[string]crypto.PrivKey),
 	}
 }
 
-func (s *cachedStorage) LoadOrCreate(name string) (crypto.PrivKey, error) {
+func (s *cachedStorage) LoadOrCreate() (crypto.PrivKey, error) {
 	s.Lock()
 	defer s.Unlock()
 
-	secret, ok := s.secret[name]
-	if ok {
-		return secret, nil
+	if s.key != nil {
+		return s.key, nil
 	}
 
-	secret, err := s.diskStorage.LoadOrCreate(name)
+	key, err := s.diskStorage.LoadOrCreate()
 	if err != nil {
 		return nil, xerrors.Errorf("could not load from disk: %v", err)
 	}
 
-	s.secret[name] = secret
-	return secret, nil
+	s.key = key
+	return key, nil
 }

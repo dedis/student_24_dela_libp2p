@@ -37,9 +37,9 @@ func Test_newMinows(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			listen := mustCreateMultiaddress(t, tt.args.listen)
 			public := mustCreateMultiaddress(t, tt.args.public)
-			secret := mustCreateSecret(t)
+			key := mustCreateKey(t)
 
-			m, err := NewMinows(listen, public, secret)
+			m, err := NewMinows(listen, public, key)
 			require.NoError(t, err)
 			require.NotNil(t, m)
 			require.IsType(t, &minows{}, m)
@@ -78,12 +78,12 @@ func Test_minows_GetAddress(t *testing.T) {
 	const listen = "/ip4/0.0.0.0/tcp/6000"
 	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
 	const publicWSS = "/ip4/127.0.0.1/tcp/443/wss"
-	secret := mustCreateSecret(t)
-	id := mustDerivePeerID(t, secret).String()
+	key := mustCreateKey(t)
+	id := mustDerivePeerID(t, key).String()
 	type m struct {
 		listen string
 		public string
-		secret crypto.PrivKey
+		key    crypto.PrivKey
 	}
 	type want struct {
 		location string
@@ -93,13 +93,13 @@ func Test_minows_GetAddress(t *testing.T) {
 		m    m
 		want want
 	}{
-		"ws":  {m{listen, publicWS, secret}, want{publicWS, id}},
-		"wss": {m{listen, publicWSS, secret}, want{publicWSS, id}},
+		"ws":  {m{listen, publicWS, key}, want{publicWS, id}},
+		"wss": {m{listen, publicWSS, key}, want{publicWSS, id}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			m, err := NewMinows(mustCreateMultiaddress(t, tt.m.listen),
-				mustCreateMultiaddress(t, tt.m.public), tt.m.secret)
+				mustCreateMultiaddress(t, tt.m.public), tt.m.key)
 			require.NoError(t, err)
 			defer require.NoError(t, m.(*minows).stop())
 			want := mustCreateAddress(t, tt.want.location, tt.want.identity)
@@ -191,22 +191,22 @@ func Test_minows_CreateRPC(t *testing.T) {
 
 func mustCreateMinows(t *testing.T, listen string, public string) (mino.Mino,
 	func()) {
-	secret := mustCreateSecret(t)
+	key := mustCreateKey(t)
 	m, err := NewMinows(mustCreateMultiaddress(t, listen),
-		mustCreateMultiaddress(t, public), secret) // starts listening
+		mustCreateMultiaddress(t, public), key)
 	require.NoError(t, err)
 	stop := func() { require.NoError(t, m.(*minows).stop()) }
 	return m, stop
 }
 
-func mustCreateSecret(t *testing.T) crypto.PrivKey {
-	secret, _, err := crypto.GenerateEd25519Key(rand.Reader)
+func mustCreateKey(t *testing.T) crypto.PrivKey {
+	key, _, err := crypto.GenerateEd25519Key(rand.Reader)
 	require.NoError(t, err)
-	return secret
+	return key
 }
 
-func mustDerivePeerID(t *testing.T, secret crypto.PrivKey) peer.ID {
-	pid, err := peer.IDFromPrivateKey(secret)
+func mustDerivePeerID(t *testing.T, key crypto.PrivKey) peer.ID {
+	pid, err := peer.IDFromPrivateKey(key)
 	require.NoError(t, err)
 	return pid
 }

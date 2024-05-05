@@ -38,10 +38,10 @@ type minows struct {
 // e.g. /dns4/p2p-1.c4dt.dela.org/tcp/443/wss
 // If `listen` is localhost, `public` can be nil and will be determined
 // by the listening address and the port the host has bound to.
-// secret: private key representing this mino instance's identity
-func NewMinows(listen, public ma.Multiaddr, secret crypto.PrivKey) (mino.Mino,
+// key: private key representing this mino instance's identity
+func NewMinows(listen, public ma.Multiaddr, key crypto.PrivKey) (mino.Mino,
 	error) {
-	h, err := libp2p.New(libp2p.ListenAddrs(listen), libp2p.Identity(secret))
+	h, err := libp2p.New(libp2p.ListenAddrs(listen), libp2p.Identity(key))
 	if err != nil {
 		return nil, xerrors.Errorf("could not start host: %v", err)
 	}

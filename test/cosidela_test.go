@@ -7,7 +7,7 @@ import (
 	"crypto/x509"
 	ma "github.com/multiformats/go-multiaddr"
 	"go.dedis.ch/dela/mino/minows"
-	"go.dedis.ch/dela/mino/minows/secret"
+	"go.dedis.ch/dela/mino/minows/key"
 	"io"
 	"math/rand"
 	"net/url"
@@ -113,10 +113,10 @@ func newDelaNode(t require.TestingT, path string, port int, kind string) dela {
 		listen, err := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/0/ws")
 		require.NoError(t, err)
 
-		storage := secret.NewStorage(db)
-		secret, err := storage.LoadOrCreate(filepath.Base(path))
+		storage := key.NewStorage(db)
+		key, err := storage.LoadOrCreate()
 
-		onet, err = minows.NewMinows(listen, nil, secret)
+		onet, err = minows.NewMinows(listen, nil, key)
 		require.NoError(t, err)
 	}
 	onet.GetAddress()

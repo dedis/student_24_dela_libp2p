@@ -5,7 +5,7 @@ import (
 	"go.dedis.ch/dela/cli"
 	"go.dedis.ch/dela/cli/node"
 	"go.dedis.ch/dela/core/store/kv"
-	"go.dedis.ch/dela/mino/minows/secret"
+	"go.dedis.ch/dela/mino/minows/key"
 	"golang.org/x/xerrors"
 )
 
@@ -38,11 +38,6 @@ func (c controller) SetCommands(builder node.Builder) {
 			Required: false, // todo add test
 			Value:    "",
 		},
-		cli.StringFlag{
-			Name:     flagName,
-			Usage:    "used to fetch the secret in db (e.g. node-1)",
-			Required: true,
-		},
 	)
 }
 
@@ -57,10 +52,10 @@ func (c controller) OnStart(flags cli.Flags, inj node.Injector) error {
 	if err != nil {
 		return xerrors.Errorf("could not resolve db: %v", err)
 	}
-	storage := secret.NewStorage(db)
-	secret, err := storage.LoadOrCreate(flags.String(flagName))
+	storage := key.NewStorage(db)
+	key, err := storage.LoadOrCreate()
 	if err != nil {
-		return xerrors.Errorf("could not load secret: %v", err)
+		return xerrors.Errorf("could not load key: %v", err)
 	}
 
 	var public ma.Multiaddr
@@ -72,7 +67,7 @@ func (c controller) OnStart(flags cli.Flags, inj node.Injector) error {
 		}
 	}
 
-	m, err := NewMinows(listen, public, secret)
+	m, err := NewMinows(listen, public, key)
 	if err != nil {
 		return xerrors.Errorf("could not start mino: %v", err)
 	}
