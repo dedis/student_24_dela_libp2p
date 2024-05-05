@@ -18,16 +18,18 @@ import (
 	"golang.org/x/xerrors"
 )
 
+var pattern = regexp.MustCompile("^[a-zA-Z0-9]+$")
+
 // Minows
 // - implements mino.Mino
 type minows struct {
 	logger zerolog.Logger
 
-	myAddr   address // publicly reachable address
+	myAddr   address
 	host     host.Host
 	context  serde.Context
-	segments []string       // namespace
-	rpcs     map[string]any // names
+	segments []string
+	rpcs     map[string]any
 }
 
 // newMinows creates a new Minows instance.
@@ -38,7 +40,6 @@ type minows struct {
 // secret: private key representing this mino instance's identity
 func newMinows(listen, public ma.Multiaddr, secret crypto.PrivKey) (*minows,
 	error) {
-	// create publicly reachable address
 	id, err := peer.IDFromPrivateKey(secret)
 	if err != nil {
 		return nil, xerrors.Errorf("could not derive identity: %w", err)
@@ -47,11 +48,12 @@ func newMinows(listen, public ma.Multiaddr, secret crypto.PrivKey) (*minows,
 	if err != nil {
 		return nil, xerrors.Errorf("could not create address: %v", err)
 	}
-	// start listening
+
 	h, err := libp2p.New(libp2p.ListenAddrs(listen), libp2p.Identity(secret))
 	if err != nil {
 		return nil, xerrors.Errorf("could not create host: %v", err)
 	}
+
 	return &minows{
 		logger:   dela.Logger.With().Str("mino", myAddr.String()).Logger(),
 		myAddr:   myAddr,
@@ -79,14 +81,12 @@ func (m *minows) WithSegment(segment string) mino.Mino {
 		myAddr:   m.myAddr,
 		segments: append(m.segments, segment),
 		host:     m.host,
-		rpcs:     make(map[string]any), // don't copy existing rpcs
+		rpcs:     make(map[string]any),
 		context:  m.context,
 	}
 }
 
 func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.RPC, error) {
-	pattern := regexp.MustCompile("^[a-zA-Z0-9]+$")
-	// validate namespace once
 	if len(m.rpcs) == 0 {
 		for _, seg := range m.segments {
 			if !pattern.MatchString(seg) {
@@ -94,16 +94,17 @@ func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 			}
 		}
 	}
-	// validate name
+
 	if !pattern.MatchString(name) {
 		return nil, xerrors.Errorf("invalid name: %s", name)
 	}
-	if _, found := m.rpcs[name]; found {
+	_, found := m.rpcs[name]
+	if found {
 		return nil, xerrors.Errorf("already exists rpc: %s", name)
 	}
-	// form uri
+
 	uri := strings.Join(append(m.segments, name), "/")
-	// create rpc
+
 	r := &rpc{
 		logger:  m.logger.With().Str("rpc", uri).Logger(),
 		uri:     uri,
@@ -111,12 +112,13 @@ func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 		factory: f,
 		context: m.context,
 	}
-	// register handlers
+
 	m.host.SetStreamHandler(protocol.ID(uri+PostfixCall),
 		r.createCallHandler(h))
 	m.host.SetStreamHandler(protocol.ID(uri+PostfixStream),
 		r.createStreamHandler(h))
 	m.rpcs[name] = nil
+
 	return r, nil
 }
 

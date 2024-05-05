@@ -32,15 +32,12 @@ func Test_newAddress(t *testing.T) {
 			args: args{addrHostname, pid1},
 		},
 	}
-	t.Parallel() // run this test function in parallel to other test functions
 	for name, tt := range tests {
-		tt := tt // capture range variable
+		tt := tt
 		t.Run(name, func(t *testing.T) {
-			t.Parallel() // run this test case in parallel to other test cases
 			location := mustCreateMultiaddress(t, tt.args.location)
 			identity := mustCreatePeerID(t, tt.args.identity)
 
-			// no exported field on 'address' type, ignored
 			_, err := newAddress(location, identity)
 			require.NoError(t, err)
 		})
@@ -63,12 +60,9 @@ func Test_newAddress_Invalid(t *testing.T) {
 			location: mustCreateMultiaddress(t, addrAllInterface),
 			identity: "",
 		}}
-	t.Parallel() // run this test function in parallel to other test functions
 	for name, tt := range tests {
-		tt := tt // capture range variable
+		tt := tt
 		t.Run(name, func(t *testing.T) {
-			t.Parallel() // run this test case in parallel to other test cases
-			// no exported fields on Address type, ignored
 			_, err := newAddress(tt.location, tt.identity)
 			require.Error(t, err)
 		})
@@ -112,12 +106,9 @@ func Test_address_Equal(t *testing.T) {
 			out:   false,
 		},
 	}
-	t.Parallel()
 	for name, tt := range tests {
 		tt := tt
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
 			result := tt.self.Equal(tt.other)
 
 			require.Equal(t, tt.out, result)
@@ -148,12 +139,9 @@ func Test_address_String(t *testing.T) {
 			want: "/dns4/example.com/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU",
 		},
 	}
-	t.Parallel()
 	for name, tt := range tests {
 		tt := tt
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
 			result := tt.a.String()
 
 			require.Equal(t, tt.want, result)
@@ -184,12 +172,9 @@ func Test_address_MarshalText(t *testing.T) {
 			want: []byte("/dns4/example.com/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
 		},
 	}
-	t.Parallel()
 	for name, tt := range tests {
 		tt := tt
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
 			result, err := tt.a.MarshalText()
 
 			require.NoError(t, err)
@@ -221,13 +206,10 @@ func Test_addressFactory_FromText(t *testing.T) {
 			want: mustCreateAddress(t, addrHostname, pid1),
 		},
 	}
-	t.Parallel()
 	factory := addressFactory{}
 	for name, tt := range tests {
 		tt := tt
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
 			result := factory.FromText(tt.args)
 
 			require.Equal(t, tt.want, result)
@@ -251,13 +233,10 @@ func Test_addressFactory_FromText_Invalid(t *testing.T) {
 		},
 	}
 
-	t.Parallel()
 	factory := addressFactory{}
 	for name, tt := range tests {
 		tt := tt
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
 			result := factory.FromText(tt.args)
 
 			require.Nil(t, result)

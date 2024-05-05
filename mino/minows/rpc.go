@@ -49,23 +49,26 @@ func (r rpc) Call(ctx context.Context, req serde.Message,
 	if players == nil || players.Len() == 0 {
 		return nil, xerrors.New("no players to call")
 	}
-	// quit unless all player addresses are valid
+
 	addrs, err := toAddresses(players)
 	if err != nil {
 		return nil, err
 	}
-	// establish streams to all players concurrently
+
 	r.addPeers(addrs)
 	results := r.openStreams(ctx, protocol.ID(r.uri+PostfixCall), addrs)
-	// unicast to each player concurrently as streams establish
+
 	responses := make(chan mino.Response, len(addrs))
 	var wg sync.WaitGroup
 	for range addrs {
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
+
 			select {
-			case res := <-results: // fan-out
+			case <-ctx.Done():
+			case res := <-results:
 				if res.err != nil {
 					responses <- mino.NewResponseWithError(res.remote, res.err)
 					return
@@ -76,15 +79,15 @@ func (r rpc) Call(ctx context.Context, req serde.Message,
 					return
 				}
 				responses <- mino.NewResponse(res.remote, reply)
-			case <-ctx.Done(): // let goroutine exit if context is done
-				// before all streams are established
 			}
 		}()
 	}
+
 	go func() {
 		wg.Wait()
 		close(responses)
 	}()
+
 	return responses, nil
 }
 
@@ -102,24 +105,24 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 	if players == nil || players.Len() == 0 {
 		return nil, nil, xerrors.New("no players to stream")
 	}
-	// quit unless all player addresses are valid
+
 	addrs, err := toAddresses(players)
 	if err != nil {
 		return nil, nil, err
 	}
-	// establish streams to all players concurrently
-	// quit unless all streams are established successfully
+
 	r.addPeers(addrs)
 	results := r.openStreams(ctx, protocol.ID(r.uri+PostfixStream), addrs)
 	streams, err := collectStreams(results)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("could not establish streams: %v", err)
 	}
-	// start stream session (ended by cancelling ctx)
+
 	sess, err := r.createSession(streams)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("could not start session: %v", err)
 	}
+
 	return sess, sess, nil
 }
 
@@ -141,17 +144,18 @@ func (r rpc) createCallHandler(h mino.Handler) network.StreamHandler {
 			r.logger.Error().Msgf("could not receive call request: %v", err)
 			return
 		}
+
 		resp, err := h.Process(mino.Request{Address: sender, Message: msg})
 		if err != nil {
 			r.logger.Error().Msgf("could not process call request: %v", err)
 			return
 		}
+
 		err = send(stream, resp, r.context)
 		if err != nil {
 			r.logger.Error().Msgf("could not send call response: %v", err)
 			return
 		}
-		// initiator resets & frees the stream
 	}
 }
 
@@ -163,6 +167,7 @@ func (r rpc) createStreamHandler(h mino.Handler) network.StreamHandler {
 			dela.Logger.Error().Msgf("could not start stream session: %v", err)
 			return
 		}
+
 		go func() {
 			err = h.Stream(sess, sess)
 			if err != nil {
@@ -170,7 +175,6 @@ func (r rpc) createStreamHandler(h mino.Handler) network.StreamHandler {
 				return
 			}
 		}()
-		// initiator resets & frees the stream
 	}
 }
 
@@ -181,21 +185,23 @@ func (r rpc) addPeers(addrs []address) {
 	}
 }
 
-// when context is done: 1) cancel pending streams 2) reset
-// & free established streams 3) close output channel
+// openStreams opens streams to `addrs` concurrently.
+// It cancels any pending streams,
+// resets & frees any established streams,
+// and closes the output channel when `ctx` is done.
 func (r rpc) openStreams(ctx context.Context,
 	p protocol.ID, addrs []address) chan result {
 	r.logger.Debug().Msgf("opening streams to %v...", addrs)
-	// dial each player concurrently
+
 	var wg sync.WaitGroup
 	results := make(chan result, len(addrs))
 	for _, addr := range addrs {
 		wg.Add(1)
+
 		go func(addr address) {
 			defer wg.Done()
-			// free stream when ctx is done
+
 			stream, err := r.mino.host.NewStream(ctx, addr.identity, p)
-			// collect established stream or error
 			if err != nil {
 				r.logger.Debug().Err(err).Msgf("could not open stream to %v", addr)
 				results <- result{
@@ -204,9 +210,11 @@ func (r rpc) openStreams(ctx context.Context,
 				}
 				return
 			}
+
 			r.logger.Debug().Msgf("opened stream to %v", addr)
 			results <- result{remote: addr, stream: stream}
-			go func() { // reset established stream
+
+			go func() {
 				<-ctx.Done()
 				err := stream.Reset()
 				if err != nil {
@@ -217,12 +225,13 @@ func (r rpc) openStreams(ctx context.Context,
 			}()
 		}(addr)
 	}
-	// close output channels when no more pending streams
+
 	go func() {
 		wg.Wait()
 		close(results)
 		r.logger.Debug().Msg("finished opening streams")
 	}()
+
 	return results
 }
 
@@ -244,16 +253,16 @@ func (r rpc) unicast(stream network.Stream, req serde.Message,
 // the incoming message channel when the initiator is done and cancels the
 // stream context which resets all streams
 func (r rpc) createSession(streams map[peer.ID]network.Stream) (*session, error) {
-	// listen for incoming messages till streams are reset
-	in := make(chan envelope) // unbuffered
+	in := make(chan envelope)
 	for _, stream := range streams {
 		go func(stream network.Stream) {
 			for {
 				sender, msg, err := receive(stream, r.factory, r.context)
-				in <- envelope{sender, msg, err} // fan-in
+				in <- envelope{sender, msg, err}
 			}
 		}(stream)
 	}
+
 	return &session{
 		streams: streams,
 		rpc:     r,
@@ -280,6 +289,7 @@ func send(stream network.Stream, msg serde.Message, c serde.Context) error {
 	if err != nil {
 		return xerrors.Errorf("could not serialize message: %v", err)
 	}
+
 	_, err = stream.Write(data)
 	if errors.Is(err, network.ErrReset) || err == io.EOF {
 		return err
@@ -300,6 +310,7 @@ func receive(stream network.Stream,
 			"unexpected: could not create sender address: %v",
 			err)
 	}
+
 	buffer := make([]byte, MaxMessageSize)
 	n, err := stream.Read(buffer)
 	if errors.Is(err, network.ErrReset) || err == io.EOF {
@@ -310,6 +321,7 @@ func receive(stream network.Stream,
 			"could not read from stream: %v",
 			err)
 	}
+
 	msg, err := f.Deserialize(c, buffer[:n])
 	if err != nil {
 		return sender, nil, xerrors.Errorf(

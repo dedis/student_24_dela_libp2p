@@ -15,12 +15,12 @@ import (
 const protocolP2P = "/p2p/"
 
 // address represents a publicly reachable network address that can be used
-// to establish communication with a remote player through libp2p and therefore,
-// must have both `location` and `identity` components.
+// to establish communication with a remote player through libp2p and,
+// therefore, must have both `location` and `identity` components.
 // - implements mino.Address
 type address struct {
-	location ma.Multiaddr // required
-	identity peer.ID      // required
+	location ma.Multiaddr
+	identity peer.ID
 }
 
 // newAddress creates a new address from a publicly reachable location with a
