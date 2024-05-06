@@ -17,7 +17,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
-const MaxMessageSize = 1e9
+const avgMessageSize = 1e6
 
 const PostfixCall = "/call"
 const PostfixStream = "/stream"
@@ -291,7 +291,7 @@ func send(stream network.Stream, msg serde.Message, c serde.Context) error {
 	}
 
 	_, err = stream.Write(data)
-	if errors.Is(err, network.ErrReset) || err == io.EOF {
+	if errors.Is(err, network.ErrReset) || errors.Is(err, io.ErrClosedPipe) {
 		return err
 	}
 	if err != nil {
@@ -311,18 +311,27 @@ func receive(stream network.Stream,
 			err)
 	}
 
-	buffer := make([]byte, MaxMessageSize)
-	n, err := stream.Read(buffer)
-	if errors.Is(err, network.ErrReset) || err == io.EOF {
-		return sender, nil, err
-	}
-	if err != nil {
-		return sender, nil, xerrors.Errorf(
-			"could not read from stream: %v",
-			err)
+	var buffer []byte
+	next := make([]byte, avgMessageSize)
+	for {
+		n, err := stream.Read(next)
+		if n > 0 {
+			buffer = append(buffer, next[:n]...)
+			if n < len(next) {
+				break
+			}
+			continue
+		}
+		if errors.Is(err, network.ErrReset) {
+			return sender, nil, err
+		}
+		if err != nil {
+			return sender, nil, xerrors.Errorf(
+				"could not read from stream: %v", err)
+		}
 	}
 
-	msg, err := f.Deserialize(c, buffer[:n])
+	msg, err := f.Deserialize(c, buffer)
 	if err != nil {
 		return sender, nil, xerrors.Errorf(
 			"could not deserialize message: %v",
