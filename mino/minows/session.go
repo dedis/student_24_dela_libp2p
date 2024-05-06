@@ -19,6 +19,7 @@ type session struct {
 	streams map[peer.ID]network.Stream
 	rpc     rpc
 	in      chan envelope
+	// 	TODO self chan serde.Message
 }
 
 type envelope struct {
@@ -31,6 +32,9 @@ type envelope struct {
 // Some may fail and each populates an error in the error channel, while some
 // succeed. Error channel is closed when all messages are sent or errors.
 func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
+	// TODO send to self: send to local session s.local <- msg
+	// localSession: Send() -> s.in
+	// localSession: Recv() <- s.local
 	var wg sync.WaitGroup
 	errs := make(chan error, len(addrs))
 	for _, next := range addrs {
@@ -69,7 +73,7 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 
 func (s session) Recv(ctx context.Context) (mino.Address, serde.Message, error) {
 	select {
-	case env := <-s.in:
+	case env := <-s.in: // TODO: or if in channel is closed
 		if errors.Is(env.err, network.ErrReset) || env.err == io.EOF {
 			return nil, nil, xerrors.Errorf("session ended: %v", env.err)
 		}

@@ -44,6 +44,7 @@ type result struct {
 // Otherwise, returns a response channel 1) filled with replies or errors args
 // the network from each player 2) closed after every player has
 // replied or errored, or the context is done.
+// TODO send to self: handler.Process(msg), put reply/err in response channel
 func (r rpc) Call(ctx context.Context, req serde.Message,
 	players mino.Players) (<-chan mino.Response, error) {
 	if players == nil || players.Len() == 0 {
@@ -99,8 +100,9 @@ func (r rpc) Call(ctx context.Context, req serde.Message,
 // messages.
 // Note:
 // - 'ctx' defines when the stream session ends,
-// so should always be canceled at some point (e.g. completed task or errored).
-// - When it's done, all the connections are shut down and resources freed.
+// so should always be canceled at some point (e.g.
+// completed task or errored), which shuts down
+// all the connections and frees the resources.
 func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, mino.Receiver, error) {
 	if players == nil || players.Len() == 0 {
 		return nil, nil, xerrors.New("no players to stream")
@@ -189,6 +191,7 @@ func (r rpc) addPeers(addrs []address) {
 // It cancels any pending streams,
 // resets & frees any established streams,
 // and closes the output channel when `ctx` is done.
+// TODO skip stream to self
 func (r rpc) openStreams(ctx context.Context,
 	p protocol.ID, addrs []address) chan result {
 	r.logger.Debug().Msgf("opening streams to %v...", addrs)
@@ -252,6 +255,9 @@ func (r rpc) unicast(stream network.Stream, req serde.Message,
 // session ends automatically on both initiator & player side by closing
 // the incoming message channel when the initiator is done and cancels the
 // stream context which resets all streams
+// TODO create a local self channel if stream to self is needed
+//
+//	& register handler h.Stream(localSession, localSession)
 func (r rpc) createSession(streams map[peer.ID]network.Stream) (*session, error) {
 	in := make(chan envelope)
 	for _, stream := range streams {
@@ -259,10 +265,11 @@ func (r rpc) createSession(streams map[peer.ID]network.Stream) (*session, error)
 			for {
 				sender, msg, err := receive(stream, r.factory, r.context)
 				in <- envelope{sender, msg, err}
+				// 	TODO exit goroutine when stream is reset
 			}
 		}(stream)
 	}
-
+	// TODO close in channel when all streams are reset (wg)
 	return &session{
 		streams: streams,
 		rpc:     r,
@@ -291,6 +298,7 @@ func send(stream network.Stream, msg serde.Message, c serde.Context) error {
 	}
 
 	_, err = stream.Write(data)
+	// todo remove EOF check
 	if errors.Is(err, network.ErrReset) || err == io.EOF {
 		return err
 	}
@@ -313,7 +321,9 @@ func receive(stream network.Stream,
 
 	buffer := make([]byte, MaxMessageSize)
 	n, err := stream.Read(buffer)
-	if errors.Is(err, network.ErrReset) || err == io.EOF {
+	//
+	if errors.Is(err, network.ErrReset) || err == io.
+		EOF { // todo remove EOF check
 		return sender, nil, err
 	}
 	if err != nil {
