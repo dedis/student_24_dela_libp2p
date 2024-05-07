@@ -185,15 +185,15 @@ func (r rpc) createSession(streams []network.Stream) *session {
 
 	result := make(chan envelope)
 	done := make(chan any)
-	for addr, in := range ins {
-		go func(addr address, in *json.Decoder) {
+	for from, in := range ins {
+		go func(from address, in *json.Decoder) {
 			for {
 				var env envelope
-				from, msg, err := r.receive(in)
+				author, msg, err := r.receive(in)
 				if err != nil {
-					env = envelope{author: addr, err: err}
+					env = envelope{author: from, err: err}
 				} else {
-					env = envelope{author: from, msg: msg}
+					env = envelope{author: author, msg: msg}
 				}
 				select {
 				case <-done:
@@ -201,7 +201,7 @@ func (r rpc) createSession(streams []network.Stream) *session {
 				case result <- env:
 				}
 			}
-		}(addr, in)
+		}(from, in)
 	}
 
 	in := make(chan envelope)
