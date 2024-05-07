@@ -183,37 +183,38 @@ func (r rpc) createSession(streams []network.Stream) *session {
 		outs[stream.Conn().RemotePeer()] = json.NewEncoder(stream)
 	}
 
-	result := make(chan envelope)
+	result := make(chan mino.Response)
 	done := make(chan any)
 	for addr, in := range ins {
-		go func(addr address, in *json.Decoder) {
+		go func(from address, in *json.Decoder) {
 			for {
-				var env envelope
-				from, msg, err := r.receive(in)
+				var res mino.Response
+				author, msg, err := r.receive(in)
 				if err != nil {
-					env = envelope{author: addr, err: err}
+					res = mino.NewResponseWithError(from, err)
 				} else {
-					env = envelope{author: from, msg: msg}
+					res = mino.NewResponse(author, msg)
 				}
 				select {
 				case <-done:
 					return
-				case result <- env:
+				case result <- res:
 				}
 			}
 		}(addr, in)
 	}
 
-	in := make(chan envelope)
+	in := make(chan mino.Response)
 	go func() {
 		for {
-			env := <-result
-			if errors.Is(env.err, network.ErrReset) {
+			res := <-result
+			_, err := res.GetMessageOrError()
+			if errors.Is(err, network.ErrReset) {
 				close(done)
 				close(in)
 				return
 			}
-			in <- env
+			in <- res
 		}
 	}()
 

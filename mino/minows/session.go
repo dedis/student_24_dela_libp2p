@@ -24,7 +24,7 @@ type envelope struct {
 // - implements mino.Sender, mino.Receiver
 type session struct {
 	rpc  rpc
-	in   chan envelope
+	in   chan mino.Response
 	outs map[peer.ID]*json.Encoder
 }
 
@@ -74,12 +74,13 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 
 func (s session) Recv(ctx context.Context) (mino.Address, serde.Message, error) {
 	select {
-	case env, ok := <-s.in:
+	case res, ok := <-s.in:
 		if !ok {
 			return nil, nil, xerrors.Errorf("session ended: %v",
 				network.ErrReset)
 		}
-		return env.author, env.msg, env.err
+		msg, err := res.GetMessageOrError()
+		return res.GetFrom(), msg, err
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
 	}
