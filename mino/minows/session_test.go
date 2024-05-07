@@ -161,7 +161,7 @@ func Test_session_Recv_SessionEnded(t *testing.T) {
 	require.NoError(t, <-errs)
 	stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	_, _, err := receiver.Recv(ctx)

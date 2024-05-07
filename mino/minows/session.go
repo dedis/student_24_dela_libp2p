@@ -2,66 +2,71 @@ package minows
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"go.dedis.ch/dela/mino"
 	"go.dedis.ch/dela/serde"
 	"golang.org/x/xerrors"
-	"io"
-	"sync"
 )
 
-// session represents a stream session opened by RPC.Stream()
-// between a Minows instance and other players of the RPC .
+type envelope struct {
+	author mino.Address
+	msg    serde.Message
+	err    error
+}
+
+// session represents a stream session started by rpc.Stream()
+// between a minows instance and other players of the RPC.
+// A session ends for all participants when the initiator is done and cancels
+// the stream context.
 // - implements mino.Sender, mino.Receiver
 type session struct {
-	streams map[peer.ID]network.Stream
-	rpc     rpc
-	in      chan envelope
+	rpc  rpc
+	in   chan envelope
+	outs map[peer.ID]*json.Encoder
 }
 
-type envelope struct {
-	sender  address
-	message serde.Message
-	err     error
-}
-
-// Send sends a message to all `addrs` concurrently.
-// Some may fail and each populates an error in the error channel, while some
-// succeed. Error channel is closed when all messages are sent or errors.
+// Send sends a message to all addresses concurrently.
+// Send is asynchronous and returns immediately an error channel that
+// closes when the message has either been sent or errored to each address.
 func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
-	var wg sync.WaitGroup
-	errs := make(chan error, len(addrs))
-	for _, next := range addrs {
-		addr, ok := next.(address)
+	send := func(addr mino.Address) error {
+		dest, ok := addr.(address)
 		if !ok {
-			errs <- xerrors.Errorf("wrong address type: %T", next)
-			continue
+			return xerrors.Errorf("wrong address type: %T", addr)
 		}
-
-		stream, ok := s.streams[addr.identity]
+		out, ok := s.outs[dest.identity]
 		if !ok {
-			errs <- xerrors.Errorf("address %v not a player", addr)
-			continue
+			return xerrors.Errorf("address %v not a player", dest)
 		}
-
-		wg.Add(1)
-		go func(stream network.Stream) {
-			defer wg.Done()
-
-			err := send(stream, msg, s.rpc.context)
-			if errors.Is(err, network.ErrReset) || errors.Is(err, io.ErrClosedPipe) {
-				errs <- xerrors.Errorf("session ended: %v", err)
-			} else if err != nil {
-				errs <- err
-			}
-		}(stream)
+		return s.rpc.send(out, msg)
 	}
 
+	result := make(chan envelope, len(addrs))
+	for _, addr := range addrs {
+		go func(addr mino.Address) {
+			err := send(addr)
+			result <- envelope{author: addr, err: err}
+		}(addr)
+	}
+
+	errs := make(chan error, len(addrs))
 	go func() {
-		wg.Wait()
-		close(errs)
+		defer close(errs)
+
+		for i := 0; i < len(addrs); i++ {
+			env := <-result
+			if errors.Is(env.err, network.ErrReset) {
+				errs <- xerrors.Errorf("session ended: %v", env.err)
+				return
+			}
+			if env.err != nil {
+				errs <- xerrors.Errorf("could not send to %v: %v",
+					env.author, env.err)
+			}
+		}
 	}()
 
 	return errs
@@ -69,11 +74,12 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 
 func (s session) Recv(ctx context.Context) (mino.Address, serde.Message, error) {
 	select {
-	case env := <-s.in:
-		if errors.Is(env.err, network.ErrReset) || env.err == io.EOF {
-			return nil, nil, xerrors.Errorf("session ended: %v", env.err)
+	case env, ok := <-s.in:
+		if !ok {
+			return nil, nil, xerrors.Errorf("session ended: %v",
+				network.ErrReset)
 		}
-		return env.sender, env.message, env.err
+		return env.author, env.msg, env.err
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
 	}
