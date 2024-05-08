@@ -26,9 +26,9 @@ type minows struct {
 
 	myAddr   address
 	host     host.Host
-	context  serde.Context
 	segments []string
 	rpcs     map[string]any
+	factory  addressFactory
 }
 
 // NewMinows creates a new Minows instance that starts listening.
@@ -59,13 +59,13 @@ func NewMinows(listen, public ma.Multiaddr, key crypto.PrivKey) (mino.Mino,
 		myAddr:   myAddr,
 		segments: nil,
 		host:     h,
-		context:  json.NewContext(),
 		rpcs:     make(map[string]any),
+		factory:  addressFactory{},
 	}, nil
 }
 
 func (m *minows) GetAddressFactory() mino.AddressFactory {
-	return addressFactory{}
+	return m.factory
 }
 
 func (m *minows) GetAddress() mino.Address {
@@ -82,7 +82,7 @@ func (m *minows) WithSegment(segment string) mino.Mino {
 		segments: append(m.segments, segment),
 		host:     m.host,
 		rpcs:     make(map[string]any),
-		context:  m.context,
+		factory:  m.factory,
 	}
 }
 
@@ -110,13 +110,13 @@ func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 		uri:     uri,
 		mino:    m,
 		factory: f,
-		context: m.context,
+		context: json.NewContext(),
 	}
 
-	m.host.SetStreamHandler(protocol.ID(uri+PostfixCall),
-		r.createCallHandler(h))
-	m.host.SetStreamHandler(protocol.ID(uri+PostfixStream),
-		r.createStreamHandler(h))
+	pid, handler := protocol.ID(uri+pathCall), r.createCallHandler(h)
+	m.host.SetStreamHandler(pid, handler)
+	pid, handler = protocol.ID(uri+pathStream), r.createStreamHandler(h)
+	m.host.SetStreamHandler(pid, handler)
 	m.rpcs[name] = nil
 
 	return r, nil
