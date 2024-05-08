@@ -85,7 +85,7 @@ func (s *InMemory) Get(id types.Digest) (types.BlockLink, error) {
 		}
 	}
 
-	return nil, xerrors.Errorf("block not found: %w", ErrNoBlock)
+	return nil, xerrors.Errorf("block not found: %v", ErrNoBlock)
 }
 
 // GetByIndex implements blockstore.BlockStore. It returns the block associated
@@ -95,7 +95,7 @@ func (s *InMemory) GetByIndex(index uint64) (types.BlockLink, error) {
 	defer s.Unlock()
 
 	if int(index) >= len(s.blocks) {
-		return nil, xerrors.Errorf("block not found: %w", ErrNoBlock)
+		return nil, xerrors.Errorf("block not found: %v", ErrNoBlock)
 	}
 
 	return s.blocks[index], nil
@@ -128,7 +128,7 @@ func (s *InMemory) Last() (types.BlockLink, error) {
 	defer s.Unlock()
 
 	if len(s.blocks) == 0 {
-		return nil, xerrors.Errorf("store empty: %w", ErrNoBlock)
+		return nil, xerrors.Errorf("store empty: %v", ErrNoBlock)
 	}
 
 	return s.blocks[len(s.blocks)-1], nil
