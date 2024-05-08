@@ -15,20 +15,13 @@ func TestController_OnStart(t *testing.T) {
 	flags := new(mockFlags)
 	flags.On("String", "listen").Return("/ip4/0.0.0.0/tcp/8000/ws")
 	flags.On("String", "public").Return("/dns4/p2p-1.c4dt.dela.org/tcp/443/wss")
+	inj, clean := mustCreateInjector(t)
+	defer clean()
+	ctrl, stop := mustCreateController(t, inj)
+	defer stop()
 
-	dir, err := os.MkdirTemp(os.TempDir(), "minogrpc")
+	err := ctrl.OnStart(flags, inj)
 	require.NoError(t, err)
-	defer os.RemoveAll(dir)
-	db, err := kv.New(filepath.Join(dir, "test.db"))
-	require.NoError(t, err)
-	inj := node.NewInjector()
-	inj.Inject(db)
-
-	ctrl := NewController()
-	err = ctrl.OnStart(flags, inj)
-	require.NoError(t, err)
-	defer require.NoError(t, ctrl.OnStop(inj))
-
 	var m *minows
 	err = inj.Resolve(&m)
 	require.NoError(t, err)
@@ -38,20 +31,13 @@ func TestController_OptionalPublic(t *testing.T) {
 	flags := new(mockFlags)
 	flags.On("String", "listen").Return("/ip4/0.0.0.0/tcp/8000/ws")
 	flags.On("String", "public").Return("")
+	inj, clean := mustCreateInjector(t)
+	defer clean()
+	ctrl, stop := mustCreateController(t, inj)
+	defer stop()
 
-	dir, err := os.MkdirTemp(os.TempDir(), "minogrpc")
+	err := ctrl.OnStart(flags, inj)
 	require.NoError(t, err)
-	defer os.RemoveAll(dir)
-	db, err := kv.New(filepath.Join(dir, "test.db"))
-	require.NoError(t, err)
-	inj := node.NewInjector()
-	inj.Inject(db)
-
-	ctrl := NewController()
-	err = ctrl.OnStart(flags, inj)
-	require.NoError(t, err)
-	defer require.NoError(t, ctrl.OnStop(inj))
-
 	var m *minows
 	err = inj.Resolve(&m)
 	require.NoError(t, err)
@@ -61,17 +47,11 @@ func TestController_InvalidListen(t *testing.T) {
 	flags := new(mockFlags)
 	flags.On("String", "listen").Return("invalid")
 	flags.On("String", "public").Return("/dns4/p2p-1.c4dt.dela.org/tcp/443/wss")
+	inj, clean := mustCreateInjector(t)
+	defer clean()
+	ctrl, _ := mustCreateController(t, inj)
 
-	dir, err := os.MkdirTemp(os.TempDir(), "minogrpc")
-	require.NoError(t, err)
-	defer os.RemoveAll(dir)
-	db, err := kv.New(filepath.Join(dir, "test.db"))
-	require.NoError(t, err)
-	inj := node.NewInjector()
-	inj.Inject(db)
-
-	ctrl := NewController()
-	err = ctrl.OnStart(flags, inj)
+	err := ctrl.OnStart(flags, inj)
 	require.Error(t, err)
 }
 
@@ -79,17 +59,11 @@ func TestController_InvalidPublic(t *testing.T) {
 	flags := new(mockFlags)
 	flags.On("String", "listen").Return("/ip4/0.0.0.0/tcp/8000/ws")
 	flags.On("String", "public").Return("invalid")
+	inj, clean := mustCreateInjector(t)
+	defer clean()
+	ctrl, _ := mustCreateController(t, inj)
 
-	dir, err := os.MkdirTemp(os.TempDir(), "minogrpc")
-	require.NoError(t, err)
-	defer os.RemoveAll(dir)
-	db, err := kv.New(filepath.Join(dir, "test.db"))
-	require.NoError(t, err)
-	inj := node.NewInjector()
-	inj.Inject(db)
-
-	ctrl := NewController()
-	err = ctrl.OnStart(flags, inj)
+	err := ctrl.OnStart(flags, inj)
 	require.Error(t, err)
 }
 
@@ -97,42 +71,52 @@ func TestController_OnStop(t *testing.T) {
 	flags := new(mockFlags)
 	flags.On("String", "listen").Return("/ip4/0.0.0.0/tcp/8000/ws")
 	flags.On("String", "public").Return("/dns4/p2p-1.c4dt.dela.org/tcp/443/wss")
-
-	dir, err := os.MkdirTemp(os.TempDir(), "minogrpc")
-	require.NoError(t, err)
-	defer os.RemoveAll(dir)
-	db, err := kv.New(filepath.Join(dir, "test.db"))
-	require.NoError(t, err)
-	inj := node.NewInjector()
-	inj.Inject(db)
-
-	ctrl := NewController()
-	err = ctrl.OnStart(flags, inj)
+	inj, clean := mustCreateInjector(t)
+	defer clean()
+	ctrl, _ := mustCreateController(t, inj)
+	err := ctrl.OnStart(flags, inj)
 	require.NoError(t, err)
 
 	err = ctrl.OnStop(inj)
 	require.NoError(t, err)
 }
 
-func TestController_NotInjected(t *testing.T) {
+func TestController_MissingDependency(t *testing.T) {
 	flags := new(mockFlags)
 	flags.On("String", "listen").Return("/ip4/0.0.0.0/tcp/8000/ws")
 	flags.On("String", "public").Return("/dns4/p2p-1.c4dt.dela.org/tcp/443/wss")
-
-	dir, err := os.MkdirTemp(os.TempDir(), "minogrpc")
+	inj, clean := mustCreateInjector(t)
+	defer clean()
+	ctrl, _ := mustCreateController(t, inj)
+	err := ctrl.OnStart(flags, inj)
 	require.NoError(t, err)
-	defer os.RemoveAll(dir)
+
+	err = ctrl.OnStop(node.NewInjector())
+	require.Error(t, err)
+}
+
+func mustCreateInjector(t *testing.T) (node.Injector, func()) {
+	dir, err := os.MkdirTemp(os.TempDir(), "test")
+	require.NoError(t, err)
 	db, err := kv.New(filepath.Join(dir, "test.db"))
 	require.NoError(t, err)
 	inj := node.NewInjector()
 	inj.Inject(db)
 
-	ctrl := NewController()
-	err = ctrl.OnStart(flags, inj)
-	require.NoError(t, err)
+	clean := func() {
+		os.RemoveAll(dir)
+	}
 
-	err = ctrl.OnStop(node.NewInjector())
-	require.Error(t, err)
+	return inj, clean
+}
+
+func mustCreateController(t *testing.T, inj node.Injector) (node.Initializer, func()) {
+
+	ctrl := NewController()
+	stop := func() {
+		require.NoError(t, ctrl.OnStop(inj))
+	}
+	return ctrl, stop
 }
 
 // mockFlags
