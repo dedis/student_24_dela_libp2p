@@ -107,8 +107,10 @@ func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 
 	r := &rpc{
 		logger:  m.logger.With().Str("rpc", uri).Logger(),
+		myAddr:  m.myAddr,
 		uri:     uri,
-		mino:    m,
+		handler: h,
+		mino:    m, // todo remove
 		factory: f,
 		context: json.NewContext(),
 	}

@@ -115,8 +115,9 @@ func Test_rpc_Call_SelfDial(t *testing.T) {
 	resp := <-responses
 	from := resp.GetFrom().(address)
 	require.Equal(t, initiator.GetAddress(), from)
-	_, err = resp.GetMessageOrError()
-	require.ErrorContains(t, err, "dial to self attempted")
+	msg, err := resp.GetMessageOrError()
+	require.NoError(t, err)
+	require.Equal(t, fake.Message{}, msg)
 	_, ok := <-responses
 	require.False(t, ok)
 }

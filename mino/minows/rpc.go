@@ -29,8 +29,10 @@ type Packet struct {
 type rpc struct {
 	logger zerolog.Logger
 
+	myAddr  address
 	uri     string
-	mino    *minows
+	handler mino.Handler
+	mino    *minows // todo remove
 	factory serde.Factory
 	context serde.Context
 }
@@ -38,7 +40,7 @@ type rpc struct {
 // Call sends a request to all players concurrently and fills the response
 // channel with replies or errors from the network.
 // Call is asynchronous and returns immediately either an error or a response
-// channel that is closed when each player has replied or errored,
+// channel that is closed when each player has replied,
 // or the context is done.
 func (r rpc) Call(ctx context.Context, req serde.Message,
 	players mino.Players) (<-chan mino.Response, error) {
@@ -53,16 +55,18 @@ func (r rpc) Call(ctx context.Context, req serde.Message,
 
 	r.addPeers(addrs)
 
-	result := make(chan mino.Response, len(addrs))
+	result := make(chan envelope, len(addrs))
 	for _, addr := range addrs {
-		go func(addr address) {
-			author, reply, err := r.unicast(ctx, addr, req)
-			if err != nil {
-				result <- mino.NewResponseWithError(addr, err)
-				return
-			}
-			result <- mino.NewResponse(author, reply)
-		}(addr)
+		if r.myAddr.Equal(addr) {
+			request := mino.Request{Address: r.myAddr, Message: req}
+			reply, err := r.handler.Process(request)
+			result <- envelope{r.myAddr, reply, err}
+		} else {
+			go func(addr address) {
+				_, reply, err := r.unicast(ctx, addr, req)
+				result <- envelope{addr, reply, err}
+			}(addr)
+		}
 	}
 
 	responses := make(chan mino.Response, len(addrs))
@@ -73,8 +77,12 @@ func (r rpc) Call(ctx context.Context, req serde.Message,
 			select {
 			case <-ctx.Done():
 				return
-			case res := <-result:
-				responses <- res
+			case env := <-result:
+				if env.err != nil {
+					responses <- mino.NewResponseWithError(env.author, env.err)
+				} else {
+					responses <- mino.NewResponse(env.author, env.msg)
+				}
 			}
 		}
 	}()
@@ -189,6 +197,7 @@ func (r rpc) createSession(streams []network.Stream) *session {
 		go func(from address, in *json.Decoder) {
 			for {
 				var env envelope
+				// todo ignore author
 				author, msg, err := r.receive(in)
 				if err != nil {
 					env = envelope{author: from, err: err}
@@ -241,6 +250,7 @@ func (r rpc) send(out *json.Encoder, msg serde.Message) error {
 	return nil
 }
 
+// todo don't return address, construct from stream in stream handler
 func (r rpc) receive(in *json.Decoder) (mino.Address, serde.Message, error) {
 	var packet Packet
 	err := in.Decode(&packet)
@@ -269,6 +279,7 @@ func (r rpc) receive(in *json.Decoder) (mino.Address, serde.Message, error) {
 func (r rpc) createCallHandler(h mino.Handler) network.StreamHandler {
 	return func(stream network.Stream) {
 		in := json.NewDecoder(stream)
+		// todo construct `from` from stream
 		from, req, err := r.receive(in)
 		if err != nil {
 			r.logger.Error().Err(err).Msg(

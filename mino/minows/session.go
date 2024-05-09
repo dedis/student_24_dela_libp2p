@@ -28,7 +28,7 @@ type session struct {
 	outs map[peer.ID]*json.Encoder
 }
 
-// Send sends a message to all addresses concurrently.
+// Send multicasts a message to some players of this session concurrently.
 // Send is asynchronous and returns immediately an error channel that
 // closes when the message has either been sent or errored to each address.
 func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
@@ -58,7 +58,8 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 
 		for i := 0; i < len(addrs); i++ {
 			env := <-result
-			if errors.Is(env.err, network.ErrReset) {
+			// todo use done to end session
+			if errors.Is(env.err, network.ErrReset) { // todo remove
 				errs <- xerrors.Errorf("session ended: %v", env.err)
 				return
 			}
@@ -72,8 +73,12 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 	return errs
 }
 
+// Recv receives a message from the players of this session.
+// Recv is synchronous and returns when a message is received or the
+// context is done.
 func (s session) Recv(ctx context.Context) (mino.Address, serde.Message, error) {
 	select {
+	// todo <-done to end session
 	case env, ok := <-s.in:
 		if !ok {
 			return nil, nil, xerrors.Errorf("session ended: %v",
