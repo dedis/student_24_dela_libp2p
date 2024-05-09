@@ -20,7 +20,6 @@ const pathStream = "/stream"
 
 // Packet encapsulates a message sent over the network streams.
 type Packet struct {
-	Author  []byte // todo remove
 	Payload []byte
 }
 
@@ -223,18 +222,12 @@ func (r rpc) createSession(streams []network.Stream) *session {
 }
 
 func (r rpc) send(out *json.Encoder, msg serde.Message) error {
-	// todo remove
-	author, err := r.mino.myAddr.MarshalText()
-	if err != nil {
-		return xerrors.Errorf("could not marshal address: %v", err)
-	}
-
 	payload, err := msg.Serialize(r.context)
 	if err != nil {
 		return xerrors.Errorf("could not serialize message: %v", err)
 	}
 
-	err = out.Encode(&Packet{author, payload})
+	err = out.Encode(&Packet{payload})
 	if errors.Is(err, network.ErrReset) {
 		return err
 	}
