@@ -20,7 +20,7 @@ const pathStream = "/stream"
 
 // Packet encapsulates a message sent over the network streams.
 type Packet struct {
-	Author  []byte
+	Author  []byte // todo remove
 	Payload []byte
 }
 
@@ -63,7 +63,7 @@ func (r rpc) Call(ctx context.Context, req serde.Message,
 			result <- envelope{r.myAddr, reply, err}
 		} else {
 			go func(addr address) {
-				_, reply, err := r.unicast(ctx, addr, req)
+				reply, err := r.unicast(ctx, addr, req)
 				result <- envelope{addr, reply, err}
 			}(addr)
 		}
@@ -142,24 +142,24 @@ func (r rpc) addPeers(addrs []address) {
 }
 
 func (r rpc) unicast(ctx context.Context, dest address, req serde.Message) (
-	mino.Address, serde.Message, error) {
+	serde.Message, error) {
 	stream, err := r.openStream(ctx, dest, pathCall)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("could not open stream: %v", err)
+		return nil, xerrors.Errorf("could not open stream: %v", err)
 	}
 
 	out := json.NewEncoder(stream)
 	err = r.send(out, req)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("could not send request: %v", err)
+		return nil, xerrors.Errorf("could not send request: %v", err)
 	}
 
 	in := json.NewDecoder(stream)
-	author, reply, err := r.receive(in)
+	reply, err := r.receive(in)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("could not receive reply: %v", err)
+		return nil, xerrors.Errorf("could not receive reply: %v", err)
 	}
-	return author, reply, nil
+	return reply, nil
 }
 
 func (r rpc) openStream(ctx context.Context, dest address,
@@ -196,18 +196,11 @@ func (r rpc) createSession(streams []network.Stream) *session {
 	for from, in := range ins {
 		go func(from address, in *json.Decoder) {
 			for {
-				var env envelope
-				// todo ignore author
-				author, msg, err := r.receive(in)
-				if err != nil {
-					env = envelope{author: from, err: err}
-				} else {
-					env = envelope{author: author, msg: msg}
-				}
+				msg, err := r.receive(in)
 				select {
 				case <-done:
 					return
-				case result <- env:
+				case result <- envelope{from, msg, err}:
 				}
 			}
 		}(from, in)
@@ -230,6 +223,7 @@ func (r rpc) createSession(streams []network.Stream) *session {
 }
 
 func (r rpc) send(out *json.Encoder, msg serde.Message) error {
+	// todo remove
 	author, err := r.mino.myAddr.MarshalText()
 	if err != nil {
 		return xerrors.Errorf("could not marshal address: %v", err)
@@ -250,43 +244,37 @@ func (r rpc) send(out *json.Encoder, msg serde.Message) error {
 	return nil
 }
 
-// todo don't return address, construct from stream in stream handler
-func (r rpc) receive(in *json.Decoder) (mino.Address, serde.Message, error) {
+func (r rpc) receive(in *json.Decoder) (serde.Message, error) {
 	var packet Packet
 	err := in.Decode(&packet)
 	if errors.Is(err, network.ErrReset) {
-		return nil, nil, err
+		return nil, err
 	}
 	if err != nil {
-		return nil, nil, xerrors.Errorf("could not decode packet: %v", err)
-	}
-
-	author := r.mino.GetAddressFactory().FromText(packet.Author)
-	if author == nil {
-		return nil, nil, xerrors.Errorf("could not unmarshal address: %v",
-			packet.Author)
+		return nil, xerrors.Errorf("could not decode packet: %v", err)
 	}
 
 	msg, err := r.factory.Deserialize(r.context, packet.Payload)
 	if err != nil {
-		return nil, nil, xerrors.Errorf(
+		return nil, xerrors.Errorf(
 			"could not deserialize message: %v",
 			err)
 	}
-	return author, msg, nil
+	return msg, nil
 }
 
 func (r rpc) createCallHandler(h mino.Handler) network.StreamHandler {
 	return func(stream network.Stream) {
 		in := json.NewDecoder(stream)
-		// todo construct `from` from stream
-		from, req, err := r.receive(in)
+		req, err := r.receive(in)
 		if err != nil {
 			r.logger.Error().Err(err).Msg(
 				"could not receive call")
 			return
 		}
 
+		from := address{stream.Conn().RemoteMultiaddr(),
+			stream.Conn().RemotePeer()}
 		reply, err := h.Process(mino.Request{Address: from, Message: req})
 		if err != nil {
 			r.logger.Error().Err(err).Msg("could not process call")

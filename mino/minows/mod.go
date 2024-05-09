@@ -78,11 +78,12 @@ func (m *minows) WithSegment(segment string) mino.Mino {
 	}
 
 	return &minows{
+		logger:   m.logger,
 		myAddr:   m.myAddr,
 		segments: append(m.segments, segment),
 		host:     m.host,
 		rpcs:     make(map[string]any),
-		factory:  m.factory,
+		factory:  addressFactory{},
 	}
 }
 
