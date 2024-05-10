@@ -106,7 +106,12 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 
 	result := make(chan network.Stream, len(addrs))
 	errs := make(chan error, len(addrs))
+	loopback := false
 	for _, addr := range addrs {
+		if addr.Equal(r.myAddr) {
+			loopback = true
+			continue
+		}
 		go func(addr address) {
 			stream, err := r.openStream(ctx, addr, pathStream)
 			if err != nil {
@@ -129,7 +134,7 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 		}
 	}
 
-	sess := r.createSession(streams)
+	sess := r.createSession(ctx, streams, loopback)
 	return sess, sess, nil
 }
 
@@ -180,45 +185,78 @@ func (r rpc) openStream(ctx context.Context, dest address,
 	return stream, nil
 }
 
-func (r rpc) createSession(streams []network.Stream) *session {
-	ins := make(map[address]*json.Decoder, len(streams))
-	outs := make(map[peer.ID]*json.Encoder, len(streams))
-	for _, stream := range streams {
-		remote := address{stream.Conn().RemoteMultiaddr(),
-			stream.Conn().RemotePeer()}
-		ins[remote] = json.NewDecoder(stream)
-		outs[stream.Conn().RemotePeer()] = json.NewEncoder(stream)
-	}
+func (r rpc) createSession(ctx context.Context,
+	streams []network.Stream, loopback bool) *session {
+	decoders, encoders := toCoders(streams)
 
 	result := make(chan envelope)
 	done := make(chan any)
-	for from, in := range ins {
-		go func(from address, in *json.Decoder) {
+	for from, decoder := range decoders {
+		go func(from address, decoder *json.Decoder) {
 			for {
-				msg, err := r.receive(in)
+				msg, err := r.receive(decoder)
 				select {
 				case <-done:
 					return
 				case result <- envelope{from, msg, err}:
 				}
 			}
-		}(from, in)
+		}(from, decoder)
 	}
 
-	in := make(chan envelope)
+	mailbox := make(chan envelope)
 	go func() {
 		for {
-			env := <-result
-			if errors.Is(env.err, network.ErrReset) {
+			select {
+			// Initiator ended session by canceling context
+			case <-ctx.Done():
 				close(done)
-				close(in)
 				return
+			case env := <-result:
+				// Cancelling context resets stream and ends
+				// session for players too
+				if xerrors.Is(env.err, network.ErrReset) {
+					close(done)
+					return
+				}
+				mailbox <- env
 			}
-			in <- env
 		}
 	}()
 
-	return &session{rpc: r, in: in, outs: outs}
+	var lb chan envelope
+	if loopback {
+		lb = make(chan envelope)
+		loop := &session{myAddr: r.myAddr, done: done,
+			encoders: make(map[peer.ID]*json.Encoder),
+			mailbox:  lb, loopback: mailbox}
+		go func() {
+			err := r.handler.Stream(loop, loop)
+			if err != nil {
+				dela.Logger.Error().Err(err).Msg("could not handle stream")
+			}
+		}()
+	}
+	return &session{myAddr: r.myAddr, rpc: r, done: done,
+		encoders: encoders, mailbox: mailbox, loopback: lb}
+}
+
+func toCoders(streams []network.Stream) (map[address]*json.Decoder, map[peer.ID]*json.Encoder) {
+	decoders := make(map[address]*json.Decoder, len(streams))
+	encoders := make(map[peer.ID]*json.Encoder, len(streams))
+	for _, stream := range streams {
+		remote := getRemoteAddr(stream)
+		decoders[remote] = json.NewDecoder(stream)
+		encoders[remote.identity] = json.NewEncoder(stream)
+	}
+	return decoders, encoders
+}
+
+func getRemoteAddr(stream network.Stream) address {
+	location := stream.Conn().RemoteMultiaddr()
+	identity := stream.Conn().RemotePeer()
+	remote := address{location, identity}
+	return remote
 }
 
 func (r rpc) send(out *json.Encoder, msg serde.Message) error {
@@ -285,13 +323,13 @@ func (r rpc) createCallHandler(h mino.Handler) network.StreamHandler {
 
 func (r rpc) createStreamHandler(h mino.Handler) network.StreamHandler {
 	return func(stream network.Stream) {
-		sess := r.createSession([]network.Stream{stream})
+		sess := r.createSession(context.Background(),
+			[]network.Stream{stream}, false)
 
 		go func() {
 			err := h.Stream(sess, sess)
 			if err != nil {
 				dela.Logger.Error().Err(err).Msg("could not handle stream")
-				return
 			}
 		}()
 	}

@@ -3,13 +3,13 @@ package minows
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"go.dedis.ch/dela/mino"
 	"go.dedis.ch/dela/serde"
 	"golang.org/x/xerrors"
 )
+
+var errSessionEnded = xerrors.New("session ended")
 
 type envelope struct {
 	author mino.Address
@@ -23,9 +23,12 @@ type envelope struct {
 // the stream context.
 // - implements mino.Sender, mino.Receiver
 type session struct {
-	rpc  rpc
-	in   chan envelope
-	outs map[peer.ID]*json.Encoder
+	myAddr   address
+	rpc      rpc
+	done     chan any
+	encoders map[peer.ID]*json.Encoder
+	mailbox  chan envelope
+	loopback chan envelope
 }
 
 // Send multicasts a message to some players of this session concurrently.
@@ -37,11 +40,18 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 		if !ok {
 			return xerrors.Errorf("wrong address type: %T", addr)
 		}
-		out, ok := s.outs[dest.identity]
+		if dest.Equal(s.myAddr) {
+			if s.loopback == nil {
+				return xerrors.Errorf("address %v not a player", dest)
+			}
+			s.loopback <- envelope{author: s.myAddr, msg: msg}
+			return nil
+		}
+		encoder, ok := s.encoders[dest.identity]
 		if !ok {
 			return xerrors.Errorf("address %v not a player", dest)
 		}
-		return s.rpc.send(out, msg)
+		return s.rpc.send(encoder, msg)
 	}
 
 	result := make(chan envelope, len(addrs))
@@ -55,21 +65,19 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 	errs := make(chan error, len(addrs))
 	go func() {
 		defer close(errs)
-
 		for i := 0; i < len(addrs); i++ {
-			env := <-result
-			// todo use done to end session
-			if errors.Is(env.err, network.ErrReset) { // todo remove
-				errs <- xerrors.Errorf("session ended: %v", env.err)
+			select {
+			case <-s.done:
+				errs <- errSessionEnded
 				return
-			}
-			if env.err != nil {
-				errs <- xerrors.Errorf("could not send to %v: %v",
-					env.author, env.err)
+			case env := <-result:
+				if env.err != nil {
+					errs <- xerrors.Errorf("could not send to %v: %v",
+						env.author, env.err)
+				}
 			}
 		}
 	}()
-
 	return errs
 }
 
@@ -78,12 +86,9 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 // context is done.
 func (s session) Recv(ctx context.Context) (mino.Address, serde.Message, error) {
 	select {
-	// todo <-done to end session
-	case env, ok := <-s.in:
-		if !ok {
-			return nil, nil, xerrors.Errorf("session ended: %v",
-				network.ErrReset)
-		}
+	case <-s.done:
+		return nil, nil, errSessionEnded
+	case env := <-s.mailbox:
 		return env.author, env.msg, env.err
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
