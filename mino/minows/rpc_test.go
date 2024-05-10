@@ -99,7 +99,7 @@ func Test_rpc_Call_DiffNamespace(t *testing.T) {
 	require.False(t, ok)
 }
 
-func Test_rpc_Call_SelfDial(t *testing.T) {
+func Test_rpc_Call_ToSelf(t *testing.T) {
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -193,7 +193,7 @@ func Test_rpc_Stream_WrongAddressType(t *testing.T) {
 	require.ErrorContains(t, err, "wrong address type")
 }
 
-func Test_rpc_Stream_SelfDial(t *testing.T) {
+func Test_rpc_Stream_ToSelf(t *testing.T) {
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -203,8 +203,10 @@ func Test_rpc_Stream_SelfDial(t *testing.T) {
 	defer cancel()
 	players := mino.NewAddresses(initiator.GetAddress())
 
-	_, _, err := r.Stream(ctx, players)
-	require.ErrorContains(t, err, "dial to self attempted")
+	sender, receiver, err := r.Stream(ctx, players)
+	require.NoError(t, err)
+	require.NotNil(t, sender)
+	require.NotNil(t, receiver)
 }
 
 func Test_rpc_Stream_ContextCancelled(t *testing.T) {

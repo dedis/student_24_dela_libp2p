@@ -44,7 +44,9 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 			if s.loopback == nil {
 				return xerrors.Errorf("address %v not a player", dest)
 			}
-			s.loopback <- envelope{author: s.myAddr, msg: msg}
+			go func() {
+				s.loopback <- envelope{author: s.myAddr, msg: msg}
+			}()
 			return nil
 		}
 		encoder, ok := s.encoders[dest.identity]

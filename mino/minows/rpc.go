@@ -106,10 +106,11 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 
 	result := make(chan network.Stream, len(addrs))
 	errs := make(chan error, len(addrs))
-	loopback := false
+	selfDial := false
+	remote := 0
 	for _, addr := range addrs {
 		if addr.Equal(r.myAddr) {
-			loopback = true
+			selfDial = true
 			continue
 		}
 		go func(addr address) {
@@ -120,10 +121,11 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 			}
 			result <- stream
 		}(addr)
+		remote++
 	}
 
-	streams := make([]network.Stream, 0, len(addrs))
-	for i := 0; i < len(addrs); i++ {
+	streams := make([]network.Stream, 0, remote)
+	for i := 0; i < remote; i++ {
 		select {
 		case <-ctx.Done():
 			return nil, nil, ctx.Err()
@@ -134,7 +136,7 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 		}
 	}
 
-	sess := r.createSession(ctx, streams, loopback)
+	sess := r.createSession(ctx, streams, selfDial)
 	return sess, sess, nil
 }
 
@@ -186,7 +188,7 @@ func (r rpc) openStream(ctx context.Context, dest address,
 }
 
 func (r rpc) createSession(ctx context.Context,
-	streams []network.Stream, loopback bool) *session {
+	streams []network.Stream, withLoopback bool) *session {
 	decoders, encoders := toCoders(streams)
 
 	result := make(chan envelope)
@@ -224,12 +226,12 @@ func (r rpc) createSession(ctx context.Context,
 		}
 	}()
 
-	var lb chan envelope
-	if loopback {
-		lb = make(chan envelope)
+	var loopback chan envelope
+	if withLoopback {
+		loopback = make(chan envelope)
 		loop := &session{myAddr: r.myAddr, done: done,
 			encoders: make(map[peer.ID]*json.Encoder),
-			mailbox:  lb, loopback: mailbox}
+			mailbox:  loopback, loopback: mailbox}
 		go func() {
 			err := r.handler.Stream(loop, loop)
 			if err != nil {
@@ -238,7 +240,7 @@ func (r rpc) createSession(ctx context.Context,
 		}()
 	}
 	return &session{myAddr: r.myAddr, rpc: r, done: done,
-		encoders: encoders, mailbox: mailbox, loopback: lb}
+		encoders: encoders, mailbox: mailbox, loopback: loopback}
 }
 
 func toCoders(streams []network.Stream) (map[address]*json.Decoder, map[peer.ID]*json.Encoder) {
