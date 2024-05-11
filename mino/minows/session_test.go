@@ -264,11 +264,8 @@ func Test_session_Recv_ContextCancelled(t *testing.T) {
 	defer stop()
 	mustCreateRPC(t, player, "test", handler)
 
-	sender, receiver, stop := mustCreateSession(t, r, player)
+	_, receiver, stop := mustCreateSession(t, r, player)
 	defer stop()
-	errs := sender.Send(fake.Message{}, player.GetAddress())
-	require.NoError(t, <-errs)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
