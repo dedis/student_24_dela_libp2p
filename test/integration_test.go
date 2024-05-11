@@ -31,12 +31,13 @@ func init() {
 // Use the value contract
 // Check the state
 func TestIntegration_Value_Simple(t *testing.T) {
-	t.Run("3 nodes", getTest[*testing.T](3, 2, minoGRPC))
-	t.Run("3 nodes", getTest[*testing.T](3, 2, minoWS))
+	t.Run("3 nodes: grpc", getTest[*testing.T](3, 2, minoGRPC))
+	t.Run("3 nodes: ws", getTest[*testing.T](3, 2, minoWS))
 }
 
 func BenchmarkValue(b *testing.B) {
-	getTest[*testing.B](5, b.N, minoGRPC)(b)
+	b.Run("5 nodes: grpc", getTest[*testing.B](5, b.N, minoGRPC))
+	b.Run("5 nodes: ws", getTest[*testing.B](5, b.N, minoWS))
 }
 
 func getTest[T require.TestingT](numNode, numTx int, kind string) func(t T) {
