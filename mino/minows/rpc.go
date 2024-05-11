@@ -8,8 +8,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/rs/xid"
 	"github.com/rs/zerolog"
-	"go.dedis.ch/dela"
 	"go.dedis.ch/dela/mino"
 	"go.dedis.ch/dela/serde"
 	"golang.org/x/xerrors"
@@ -20,6 +20,7 @@ const pathStream = "/stream"
 
 // Packet encapsulates a message sent over the network streams.
 type Packet struct {
+	Source  []byte
 	Payload []byte
 }
 
@@ -31,7 +32,7 @@ type rpc struct {
 	myAddr  address
 	uri     string
 	handler mino.Handler
-	mino    *minows // todo remove
+	mino    *minows
 	factory serde.Factory
 	context serde.Context
 }
@@ -55,16 +56,16 @@ func (r rpc) Call(ctx context.Context, req serde.Message,
 	r.addPeers(addrs)
 
 	result := make(chan envelope, len(addrs))
-	for _, addr := range addrs {
-		if r.myAddr.Equal(addr) {
+	for _, dest := range addrs {
+		if r.myAddr.Equal(dest) {
 			request := mino.Request{Address: r.myAddr, Message: req}
 			reply, err := r.handler.Process(request)
 			result <- envelope{r.myAddr, reply, err}
 		} else {
-			go func(addr address) {
-				reply, err := r.unicast(ctx, addr, req)
-				result <- envelope{addr, reply, err}
-			}(addr)
+			go func(dest address) {
+				reply, err := r.unicast(ctx, dest, req)
+				result <- envelope{dest, reply, err}
+			}(dest)
 		}
 	}
 
@@ -78,9 +79,9 @@ func (r rpc) Call(ctx context.Context, req serde.Message,
 				return
 			case env := <-result:
 				if env.err != nil {
-					responses <- mino.NewResponseWithError(env.author, env.err)
+					responses <- mino.NewResponseWithError(env.addr, env.err)
 				} else {
-					responses <- mino.NewResponse(env.author, env.msg)
+					responses <- mino.NewResponse(env.addr, env.msg)
 				}
 			}
 		}
@@ -161,7 +162,7 @@ func (r rpc) unicast(ctx context.Context, dest address, req serde.Message) (
 	}
 
 	in := json.NewDecoder(stream)
-	reply, err := r.receive(in)
+	_, reply, err := r.receive(in)
 	if err != nil {
 		return nil, xerrors.Errorf("could not receive reply: %v", err)
 	}
@@ -189,25 +190,29 @@ func (r rpc) openStream(ctx context.Context, dest address,
 
 func (r rpc) createSession(ctx context.Context,
 	streams []network.Stream, withLoopback bool) *session {
-	decoders, encoders := toCoders(streams)
-
 	result := make(chan envelope)
 	done := make(chan any)
-	for from, decoder := range decoders {
-		go func(from address, decoder *json.Decoder) {
-			for {
-				msg, err := r.receive(decoder)
-				select {
-				case <-done:
-					return
-				case result <- envelope{from, msg, err}:
-				}
+	listen := func(decoder *json.Decoder) {
+		for {
+			from, msg, err := r.receive(decoder)
+			select {
+			case <-done:
+				return
+			case result <- envelope{from, msg, err}:
 			}
-		}(from, decoder)
+		}
+	}
+
+	encoders := make(map[peer.ID]*json.Encoder)
+	for _, stream := range streams {
+		encoder := json.NewEncoder(stream)
+		encoders[stream.Conn().RemotePeer()] = encoder
+		decoder := json.NewDecoder(stream)
+		go listen(decoder)
 	}
 
 	mailbox := make(chan envelope)
-	go func() {
+	deliver := func() {
 		for {
 			select {
 			// Initiator ended session by canceling context
@@ -224,50 +229,48 @@ func (r rpc) createSession(ctx context.Context,
 				mailbox <- env
 			}
 		}
-	}()
+	}
+	go deliver()
 
 	var loopback chan envelope
 	if withLoopback {
 		loopback = make(chan envelope)
-		loop := &session{myAddr: r.myAddr, done: done,
+		loop := &session{
+			logger: r.logger.With().Stringer("loopback", xid.New()).Logger(),
+			myAddr: r.myAddr, done: done,
 			encoders: make(map[peer.ID]*json.Encoder),
-			mailbox:  loopback, loopback: mailbox}
+			mailbox:  loopback, loopback: mailbox,
+		}
 		go func() {
 			err := r.handler.Stream(loop, loop)
 			if err != nil {
-				dela.Logger.Error().Err(err).Msg("could not handle stream")
+				r.logger.Error().Err(err).Msg("could not handle stream")
 			}
 		}()
 	}
-	return &session{myAddr: r.myAddr, rpc: r, done: done,
-		encoders: encoders, mailbox: mailbox, loopback: loopback}
-}
-
-func toCoders(streams []network.Stream) (map[address]*json.Decoder, map[peer.ID]*json.Encoder) {
-	decoders := make(map[address]*json.Decoder, len(streams))
-	encoders := make(map[peer.ID]*json.Encoder, len(streams))
-	for _, stream := range streams {
-		remote := getRemoteAddr(stream)
-		decoders[remote] = json.NewDecoder(stream)
-		encoders[remote.identity] = json.NewEncoder(stream)
+	return &session{
+		logger: r.logger.With().Stringer("session", xid.New()).Logger(),
+		myAddr: r.myAddr, rpc: r, done: done,
+		encoders: encoders, mailbox: mailbox, loopback: loopback,
 	}
-	return decoders, encoders
-}
-
-func getRemoteAddr(stream network.Stream) address {
-	location := stream.Conn().RemoteMultiaddr()
-	identity := stream.Conn().RemotePeer()
-	remote := address{location, identity}
-	return remote
 }
 
 func (r rpc) send(out *json.Encoder, msg serde.Message) error {
-	payload, err := msg.Serialize(r.context)
+	from, err := r.mino.myAddr.MarshalText()
 	if err != nil {
-		return xerrors.Errorf("could not serialize message: %v", err)
+		return xerrors.Errorf("could not marshal address: %v", err)
 	}
 
-	err = out.Encode(&Packet{payload})
+	var payload []byte
+	if msg != nil {
+		bytes, err := msg.Serialize(r.context)
+		if err != nil {
+			return xerrors.Errorf("could not serialize message: %v", err)
+		}
+		payload = bytes
+	}
+
+	err = out.Encode(&Packet{Source: from, Payload: payload})
 	if errors.Is(err, network.ErrReset) {
 		return err
 	}
@@ -277,48 +280,58 @@ func (r rpc) send(out *json.Encoder, msg serde.Message) error {
 	return nil
 }
 
-func (r rpc) receive(in *json.Decoder) (serde.Message, error) {
+func (r rpc) receive(in *json.Decoder) (mino.Address, serde.Message, error) {
 	var packet Packet
 	err := in.Decode(&packet)
 	if errors.Is(err, network.ErrReset) {
-		return nil, err
+		return nil, nil, err
 	}
 	if err != nil {
-		return nil, xerrors.Errorf("could not decode packet: %v", err)
+		return nil, nil, xerrors.Errorf("could not decode packet: %v", err)
 	}
 
+	from := r.mino.GetAddressFactory().FromText(packet.Source)
+	if from == nil {
+		return nil, nil, xerrors.Errorf("could not unmarshal address: %v",
+			packet.Source)
+	}
+
+	if packet.Payload == nil {
+		return from, nil, nil
+	}
 	msg, err := r.factory.Deserialize(r.context, packet.Payload)
 	if err != nil {
-		return nil, xerrors.Errorf(
+		return from, nil, xerrors.Errorf(
 			"could not deserialize message: %v",
 			err)
 	}
-	return msg, nil
+	return from, msg, nil
 }
 
 func (r rpc) createCallHandler(h mino.Handler) network.StreamHandler {
 	return func(stream network.Stream) {
-		in := json.NewDecoder(stream)
-		req, err := r.receive(in)
-		if err != nil {
-			r.logger.Error().Err(err).Msg(
-				"could not receive call")
-			return
-		}
+		handle := func() error {
+			in := json.NewDecoder(stream)
+			from, req, err := r.receive(in)
+			if err != nil {
+				return xerrors.Errorf("could not receive: %v", err)
+			}
 
-		from := address{stream.Conn().RemoteMultiaddr(),
-			stream.Conn().RemotePeer()}
-		reply, err := h.Process(mino.Request{Address: from, Message: req})
-		if err != nil {
-			r.logger.Error().Err(err).Msg("could not process call")
-			return
-		}
+			reply, err := h.Process(mino.Request{Address: from, Message: req})
+			if err != nil {
+				return xerrors.Errorf("could not process: %v", err)
+			}
 
-		out := json.NewEncoder(stream)
-		err = r.send(out, reply)
+			out := json.NewEncoder(stream)
+			err = r.send(out, reply)
+			if err != nil {
+				return xerrors.Errorf("could not reply: %v", err)
+			}
+			return nil
+		}
+		err := handle()
 		if err != nil {
-			r.logger.Error().Err(err).Msg("could not reply to call")
-			return
+			r.logger.Error().Err(err).Msg("could not handle call")
 		}
 	}
 }
@@ -331,7 +344,7 @@ func (r rpc) createStreamHandler(h mino.Handler) network.StreamHandler {
 		go func() {
 			err := h.Stream(sess, sess)
 			if err != nil {
-				dela.Logger.Error().Err(err).Msg("could not handle stream")
+				r.logger.Error().Err(err).Msg("could not handle stream")
 			}
 		}()
 	}

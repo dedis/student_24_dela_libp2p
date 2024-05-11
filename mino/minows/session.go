@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/rs/zerolog"
 	"go.dedis.ch/dela/mino"
 	"go.dedis.ch/dela/serde"
 	"golang.org/x/xerrors"
@@ -12,9 +13,9 @@ import (
 var errSessionEnded = xerrors.New("session ended")
 
 type envelope struct {
-	author mino.Address
-	msg    serde.Message
-	err    error
+	addr mino.Address
+	msg  serde.Message
+	err  error
 }
 
 // session represents a stream session started by rpc.Stream()
@@ -23,6 +24,8 @@ type envelope struct {
 // the stream context.
 // - implements mino.Sender, mino.Receiver
 type session struct {
+	logger zerolog.Logger
+
 	myAddr   address
 	rpc      rpc
 	done     chan any
@@ -45,7 +48,7 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 				return xerrors.Errorf("address %v not a player", dest)
 			}
 			go func() {
-				s.loopback <- envelope{author: s.myAddr, msg: msg}
+				s.loopback <- envelope{addr: s.myAddr, msg: msg}
 			}()
 			return nil
 		}
@@ -57,11 +60,11 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 	}
 
 	result := make(chan envelope, len(addrs))
-	for _, addr := range addrs {
-		go func(addr mino.Address) {
-			err := send(addr)
-			result <- envelope{author: addr, err: err}
-		}(addr)
+	for _, dest := range addrs {
+		go func(dest mino.Address) {
+			err := send(dest)
+			result <- envelope{addr: dest, err: err}
+		}(dest)
 	}
 
 	errs := make(chan error, len(addrs))
@@ -75,8 +78,11 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 			case env := <-result:
 				if env.err != nil {
 					errs <- xerrors.Errorf("could not send to %v: %v",
-						env.author, env.err)
+						env.addr, env.err)
+					return
 				}
+				s.logger.Trace().Stringer("to", env.addr).
+					Msgf("sent %v", msg)
 			}
 		}
 	}()
@@ -91,7 +97,9 @@ func (s session) Recv(ctx context.Context) (mino.Address, serde.Message, error) 
 	case <-s.done:
 		return nil, nil, errSessionEnded
 	case env := <-s.mailbox:
-		return env.author, env.msg, env.err
+		s.logger.Trace().Stringer("from", env.addr).
+			Msgf("received %v", env.msg)
+		return env.addr, env.msg, env.err
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
 	}

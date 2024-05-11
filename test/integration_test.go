@@ -31,11 +31,12 @@ func init() {
 // Use the value contract
 // Check the state
 func TestIntegration_Value_Simple(t *testing.T) {
-	t.Run("3 nodes", getTest[*testing.T](3, 2, "grpc"))
+	t.Run("3 nodes", getTest[*testing.T](3, 2, minoGRPC))
+	t.Run("3 nodes", getTest[*testing.T](3, 2, minoWS))
 }
 
 func BenchmarkValue(b *testing.B) {
-	getTest[*testing.B](5, b.N, "grpc")(b)
+	getTest[*testing.B](5, b.N, minoGRPC)(b)
 }
 
 func getTest[T require.TestingT](numNode, numTx int, kind string) func(t T) {
@@ -55,7 +56,7 @@ func getTest[T require.TestingT](numNode, numTx int, kind string) func(t T) {
 			nodes[i] = node
 		}
 
-		nodes[0].Setup(nodes[1:]...)
+		nodes[0].Setup(kind, nodes[1:]...)
 
 		l := loader.NewFileLoader(filepath.Join(dir, "private.key"))
 

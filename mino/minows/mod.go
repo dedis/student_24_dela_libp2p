@@ -111,7 +111,7 @@ func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 		myAddr:  m.myAddr,
 		uri:     uri,
 		handler: h,
-		mino:    m, // todo remove
+		mino:    m,
 		factory: f,
 		context: json.NewContext(),
 	}
