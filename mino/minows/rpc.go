@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
@@ -31,6 +32,7 @@ type rpc struct {
 
 	myAddr  address
 	uri     string
+	host    host.Host
 	handler mino.Handler
 	mino    *minows
 	factory serde.Factory
@@ -143,7 +145,7 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 
 func (r rpc) addPeers(addrs []address) {
 	for _, addr := range addrs {
-		r.mino.host.Peerstore().AddAddr(addr.identity, addr.location,
+		r.host.Peerstore().AddAddr(addr.identity, addr.location,
 			peerstore.PermanentAddrTTL)
 	}
 }
@@ -172,7 +174,7 @@ func (r rpc) unicast(ctx context.Context, dest address, req serde.Message) (
 func (r rpc) openStream(ctx context.Context, dest address,
 	path string) (network.Stream, error) {
 	pid := protocol.ID(r.uri + path)
-	stream, err := r.mino.host.NewStream(ctx, dest.identity, pid)
+	stream, err := r.host.NewStream(ctx, dest.identity, pid)
 	if err != nil {
 		return nil, xerrors.Errorf("could not open stream: %v", err)
 	}

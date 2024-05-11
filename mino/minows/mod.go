@@ -110,6 +110,7 @@ func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 		logger:  m.logger.With().Str("rpc", uri).Logger(),
 		myAddr:  m.myAddr,
 		uri:     uri,
+		host:    m.host,
 		handler: h,
 		mino:    m,
 		factory: f,
