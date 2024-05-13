@@ -4,9 +4,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.dedis.ch/dela/cli/node"
-	"go.dedis.ch/dela/core/store/kv"
-	"os"
-	"path/filepath"
+	"go.dedis.ch/dela/testing/fake"
 	"testing"
 	"time"
 )
@@ -15,8 +13,8 @@ func TestController_OnStart(t *testing.T) {
 	flags := new(mockFlags)
 	flags.On("String", "listen").Return("/ip4/0.0.0.0/tcp/8000/ws")
 	flags.On("String", "public").Return("/dns4/p2p-1.c4dt.dela.org/tcp/443/wss")
-	inj, clean := mustCreateInjector(t)
-	defer clean()
+	inj := node.NewInjector()
+	inj.Inject(fake.NewInMemoryDB())
 	ctrl, stop := mustCreateController(t, inj)
 	defer stop()
 
@@ -31,8 +29,8 @@ func TestController_OptionalPublic(t *testing.T) {
 	flags := new(mockFlags)
 	flags.On("String", "listen").Return("/ip4/0.0.0.0/tcp/8000/ws")
 	flags.On("String", "public").Return("")
-	inj, clean := mustCreateInjector(t)
-	defer clean()
+	inj := node.NewInjector()
+	inj.Inject(fake.NewInMemoryDB())
 	ctrl, stop := mustCreateController(t, inj)
 	defer stop()
 
@@ -47,8 +45,8 @@ func TestController_InvalidListen(t *testing.T) {
 	flags := new(mockFlags)
 	flags.On("String", "listen").Return("invalid")
 	flags.On("String", "public").Return("/dns4/p2p-1.c4dt.dela.org/tcp/443/wss")
-	inj, clean := mustCreateInjector(t)
-	defer clean()
+	inj := node.NewInjector()
+	inj.Inject(fake.NewInMemoryDB())
 	ctrl, _ := mustCreateController(t, inj)
 
 	err := ctrl.OnStart(flags, inj)
@@ -59,8 +57,8 @@ func TestController_InvalidPublic(t *testing.T) {
 	flags := new(mockFlags)
 	flags.On("String", "listen").Return("/ip4/0.0.0.0/tcp/8000/ws")
 	flags.On("String", "public").Return("invalid")
-	inj, clean := mustCreateInjector(t)
-	defer clean()
+	inj := node.NewInjector()
+	inj.Inject(fake.NewInMemoryDB())
 	ctrl, _ := mustCreateController(t, inj)
 
 	err := ctrl.OnStart(flags, inj)
@@ -71,8 +69,8 @@ func TestController_OnStop(t *testing.T) {
 	flags := new(mockFlags)
 	flags.On("String", "listen").Return("/ip4/0.0.0.0/tcp/8000/ws")
 	flags.On("String", "public").Return("/dns4/p2p-1.c4dt.dela.org/tcp/443/wss")
-	inj, clean := mustCreateInjector(t)
-	defer clean()
+	inj := node.NewInjector()
+	inj.Inject(fake.NewInMemoryDB())
 	ctrl, _ := mustCreateController(t, inj)
 	err := ctrl.OnStart(flags, inj)
 	require.NoError(t, err)
@@ -85,29 +83,14 @@ func TestController_MissingDependency(t *testing.T) {
 	flags := new(mockFlags)
 	flags.On("String", "listen").Return("/ip4/0.0.0.0/tcp/8000/ws")
 	flags.On("String", "public").Return("/dns4/p2p-1.c4dt.dela.org/tcp/443/wss")
-	inj, clean := mustCreateInjector(t)
-	defer clean()
+	inj := node.NewInjector()
+	inj.Inject(fake.NewInMemoryDB())
 	ctrl, _ := mustCreateController(t, inj)
 	err := ctrl.OnStart(flags, inj)
 	require.NoError(t, err)
 
 	err = ctrl.OnStop(node.NewInjector())
 	require.Error(t, err)
-}
-
-func mustCreateInjector(t *testing.T) (node.Injector, func()) {
-	dir, err := os.MkdirTemp(os.TempDir(), "test")
-	require.NoError(t, err)
-	db, err := kv.New(filepath.Join(dir, "test.db"))
-	require.NoError(t, err)
-	inj := node.NewInjector()
-	inj.Inject(db)
-
-	clean := func() {
-		os.RemoveAll(dir)
-	}
-
-	return inj, clean
 }
 
 func mustCreateController(t *testing.T, inj node.Injector) (node.Initializer, func()) {
