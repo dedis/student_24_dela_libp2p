@@ -36,8 +36,14 @@ func TestIntegration_Value_Simple(t *testing.T) {
 }
 
 func BenchmarkValue(b *testing.B) {
-	b.Run("5 nodes: grpc", getTest[*testing.B](5, b.N, minoGRPC))
-	b.Run("5 nodes: ws", getTest[*testing.B](5, b.N, minoWS))
+	testGRPC := func(b *testing.B) {
+		getTest[*testing.B](5, b.N, minoGRPC)(b)
+	}
+	testWS := func(b *testing.B) {
+		getTest[*testing.B](5, b.N, minoWS)(b)
+	}
+	b.Run("5 nodes: grpc", testGRPC)
+	b.Run("5 nodes: ws", testWS)
 }
 
 func getTest[T require.TestingT](numNode, numTx int, kind string) func(t T) {
