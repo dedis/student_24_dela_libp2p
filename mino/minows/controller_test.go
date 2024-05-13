@@ -111,7 +111,6 @@ func mustCreateInjector(t *testing.T) (node.Injector, func()) {
 }
 
 func mustCreateController(t *testing.T, inj node.Injector) (node.Initializer, func()) {
-
 	ctrl := NewController()
 	stop := func() {
 		require.NoError(t, ctrl.OnStop(inj))
