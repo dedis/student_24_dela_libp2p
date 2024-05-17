@@ -124,8 +124,8 @@ func Test_rpc_Call_DiffNamespace(t *testing.T) {
 	require.Equal(t, player.GetAddress(), from)
 	_, err = resp.GetMessageOrError()
 	require.ErrorContains(t, err, "protocols not supported")
-	_, ok := <-responses
-	require.False(t, ok)
+	_, open := <-responses
+	require.False(t, open)
 }
 
 func Test_rpc_Call_ContextCancelled(t *testing.T) {

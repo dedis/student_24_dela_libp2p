@@ -59,24 +59,22 @@ func (r rpc) Call(ctx context.Context, req serde.Message,
 	r.addPeers(addrs)
 
 	result := make(chan envelope, len(addrs))
-	ctx, cancel := context.WithCancel(ctx)
-	for _, dest := range addrs {
-		if r.myAddr.Equal(dest) {
+	for _, addr := range addrs {
+		if r.myAddr.Equal(addr) {
 			request := mino.Request{Address: r.myAddr, Message: req}
 			reply, err := r.handler.Process(request)
 			result <- envelope{r.myAddr, reply, err}
 		} else {
-			go func(dest address) {
-				reply, err := r.unicast(ctx, dest, req)
-				result <- envelope{dest, reply, err}
-			}(dest)
+			go func(addr address) {
+				reply, err := r.unicast(ctx, addr, req)
+				result <- envelope{addr, reply, err}
+			}(addr)
 		}
 	}
 
 	responses := make(chan mino.Response, len(addrs))
 	go func() {
 		defer close(responses)
-
 		for i := 0; i < len(addrs); i++ {
 			select {
 			case <-ctx.Done():
@@ -89,7 +87,6 @@ func (r rpc) Call(ctx context.Context, req serde.Message,
 				}
 			}
 		}
-		cancel()
 	}()
 	return responses, nil
 }
@@ -195,56 +192,86 @@ func (r rpc) openStream(ctx context.Context, dest address,
 
 func (r rpc) createSession(ctx context.Context,
 	streams []network.Stream, withLoopback bool) *session {
-	result := make(chan envelope, 1000)
+	result := make(chan envelope)
 	done := make(chan any)
-	listen := func(dec *gob.Decoder, id peer.ID) {
-		for {
-			// todo move down to case default & remove intermediate
-			//  result channel
-			from, msg, err := r.receive(dec)
-			author, err := newAddress(from, id)
-			select {
-			case <-done:
-				return
-			case result <- envelope{author, msg, err}:
-			}
-		}
-	}
-
 	encoders := make(map[peer.ID]*gob.Encoder)
 	for _, stream := range streams {
 		id := stream.Conn().RemotePeer()
 		encoder := gob.NewEncoder(stream)
 		encoders[id] = encoder
 		decoder := gob.NewDecoder(stream)
-		go listen(decoder, id)
+		go func() {
+			for {
+				from, msg, err := r.receive(decoder)
+				author := address{location: from, identity: id}
+				select {
+				case <-done:
+					return
+				case result <- envelope{author, msg, err}:
+				}
+			}
+		}()
 	}
 
-	mailbox := make(chan envelope, 1000)
-	deliver := func() {
-		for {
-			select {
-			// Initiator ended session by canceling context
-			// 	TODO remove
-			case <-ctx.Done():
+	mailbox := make(chan envelope)
+	go func() {
+		for env := range result {
+			if xerrors.Is(env.err, network.ErrReset) {
 				close(done)
 				return
-			case env := <-result:
-				// Cancelling context resets stream and ends
-				// session for both initiator and players
-				if xerrors.Is(env.err, network.ErrReset) {
-					close(done)
-					return
-				}
-				mailbox <- env
 			}
+			mailbox <- env
 		}
-	}
-	go deliver()
+	}()
+	//
+	// listen := func(dec *gob.Decoder, id peer.ID) {
+	// 	for {
+	// 		from, msg, err := r.receive(dec)
+	// 		author := address{location: from, identity: id}
+	// 		select {
+	// 		case <-done:
+	// 			return
+	// 		// todo remove intermediate result channel??
+	// 		case result <- envelope{author, msg, err}:
+	// 		}
+	// 	}
+	// }
+	//
+	// encoders := make(map[peer.ID]*gob.Encoder)
+	// for _, stream := range streams {
+	// 	id := stream.Conn().RemotePeer()
+	// 	encoder := gob.NewEncoder(stream)
+	// 	encoders[id] = encoder
+	// 	decoder := gob.NewDecoder(stream)
+	// 	go listen(decoder, id)
+	// }
+	//
+	// mailbox := make(chan envelope)
+	// deliver := func() {
+	// 	for {
+	// 		// select {
+	// 		// Initiator ended session by canceling context
+	// 		// 	TODO remove
+	// 		// case <-ctx.Done():
+	// 		// 	close(done)
+	// 		// 	return
+	// 		// default:
+	// 		env := <-result
+	// 		// Cancelling context resets stream and ends
+	// 		// session for both initiator and players
+	// 		if xerrors.Is(env.err, network.ErrReset) {
+	// 			close(done)
+	// 			return
+	// 		}
+	// 		mailbox <- env
+	// 		// }
+	// 	}
+	// }
+	// go deliver()
 
 	var loopback chan envelope
 	if withLoopback {
-		loopback = make(chan envelope, 1000)
+		loopback = make(chan envelope)
 		loop := &session{
 			logger: r.logger.With().Stringer("loopback", xid.New()).Logger(),
 			myAddr: r.myAddr, done: done,
@@ -325,11 +352,7 @@ func (r rpc) createCallHandler(h mino.Handler) network.StreamHandler {
 			}
 
 			id := stream.Conn().RemotePeer()
-			author, err := newAddress(from, id)
-			if err != nil {
-				return xerrors.Errorf("could not create address: %v", err)
-			}
-
+			author := address{location: from, identity: id}
 			reply, err := h.Process(mino.Request{Address: author, Message: req})
 			if err != nil {
 				return xerrors.Errorf("could not process: %v", err)
