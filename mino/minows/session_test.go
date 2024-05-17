@@ -203,7 +203,7 @@ func Test_session_Recv_FromSelf(t *testing.T) {
 	errs := sender.Send(fake.Message{}, initiator.GetAddress())
 	require.NoError(t, <-errs)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	from, msg, err := receiver.Recv(ctx)

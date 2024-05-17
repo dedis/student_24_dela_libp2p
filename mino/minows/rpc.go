@@ -190,10 +190,62 @@ func (r rpc) openStream(ctx context.Context, dest address,
 	return stream, nil
 }
 
+// todo remove ctx
 func (r rpc) createSession(ctx context.Context,
 	streams []network.Stream, withLoopback bool) *session {
-	result := make(chan envelope)
 	done := make(chan any)
+	loopback := make(chan envelope, loopbackBufferSize)
+	mailbox := make(chan envelope)
+	if withLoopback { // todo rename loopback??
+		loopback := func(in chan envelope) *session { // todo set up loopback
+			loopback := &session{
+				logger:   r.logger.With().Stringer("session", xid.New()).Logger(),
+				myAddr:   r.myAddr,
+				done:     done,
+				encoders: make(map[peer.ID]*gob.Encoder),
+				mailbox:  make(chan envelope),
+				loopback: make(chan envelope, loopbackBufferSize),
+			}
+			go func() { // todo listen
+				for {
+					select {
+					case <-loopback.done:
+						return
+					case env := <-in:
+						select {
+						case <-loopback.done:
+							return
+						case loopback.mailbox <- env:
+						}
+					}
+				}
+			}()
+			go func() { // todo handle stream
+				err := r.handler.Stream(loopback, loopback)
+				if err != nil {
+					r.logger.Error().Err(err).Msg("could not handle stream")
+				}
+			}()
+			return loopback
+		}(loopback)
+		// todo listen for loopback replies
+		go func() {
+			for {
+				select {
+				case <-done:
+					return
+				case env := <-loopback.loopback:
+					select {
+					case <-done:
+						return
+					case mailbox <- env:
+					}
+				}
+			}
+		}()
+	}
+
+	result := make(chan envelope)
 	encoders := make(map[peer.ID]*gob.Encoder)
 	for _, stream := range streams {
 		id := stream.Conn().RemotePeer()
@@ -203,6 +255,7 @@ func (r rpc) createSession(ctx context.Context,
 		go func() {
 			for {
 				from, msg, err := r.receive(decoder)
+				// todo remove newAddress()??
 				author := address{location: from, identity: id}
 				select {
 				case <-done:
@@ -213,82 +266,37 @@ func (r rpc) createSession(ctx context.Context,
 		}()
 	}
 
-	mailbox := make(chan envelope)
 	go func() {
-		for env := range result {
-			if xerrors.Is(env.err, network.ErrReset) {
+		for {
+			select {
+			// Initiator ended session by canceling context
+			case <-ctx.Done():
 				close(done)
 				return
+			case env := <-result:
+				// Cancelling context resets stream and ends session for
+				// participants
+				if xerrors.Is(env.err, network.ErrReset) {
+					close(done)
+					return
+				}
+				select {
+				case <-done:
+					return
+				case mailbox <- env:
+				}
 			}
-			mailbox <- env
 		}
 	}()
-	//
-	// listen := func(dec *gob.Decoder, id peer.ID) {
-	// 	for {
-	// 		from, msg, err := r.receive(dec)
-	// 		author := address{location: from, identity: id}
-	// 		select {
-	// 		case <-done:
-	// 			return
-	// 		// todo remove intermediate result channel??
-	// 		case result <- envelope{author, msg, err}:
-	// 		}
-	// 	}
-	// }
-	//
-	// encoders := make(map[peer.ID]*gob.Encoder)
-	// for _, stream := range streams {
-	// 	id := stream.Conn().RemotePeer()
-	// 	encoder := gob.NewEncoder(stream)
-	// 	encoders[id] = encoder
-	// 	decoder := gob.NewDecoder(stream)
-	// 	go listen(decoder, id)
-	// }
-	//
-	// mailbox := make(chan envelope)
-	// deliver := func() {
-	// 	for {
-	// 		// select {
-	// 		// Initiator ended session by canceling context
-	// 		// 	TODO remove
-	// 		// case <-ctx.Done():
-	// 		// 	close(done)
-	// 		// 	return
-	// 		// default:
-	// 		env := <-result
-	// 		// Cancelling context resets stream and ends
-	// 		// session for both initiator and players
-	// 		if xerrors.Is(env.err, network.ErrReset) {
-	// 			close(done)
-	// 			return
-	// 		}
-	// 		mailbox <- env
-	// 		// }
-	// 	}
-	// }
-	// go deliver()
 
-	var loopback chan envelope
-	if withLoopback {
-		loopback = make(chan envelope)
-		loop := &session{
-			logger: r.logger.With().Stringer("loopback", xid.New()).Logger(),
-			myAddr: r.myAddr, done: done,
-			encoders: make(map[peer.ID]*gob.Encoder),
-			mailbox:  loopback, loopback: mailbox,
-		}
-		go func() {
-			err := r.handler.Stream(loop, loop)
-			if err != nil {
-				r.logger.Error().Err(err).Msg("could not handle stream")
-			}
-		}()
-	}
 	return &session{
-		logger: r.logger.With().Stringer("session", xid.New()).Logger(),
-		myAddr: r.myAddr, rpc: r, done: done,
-		encoders: encoders, mailbox: mailbox, loopback: loopback,
+		logger:   r.logger.With().Stringer("session", xid.New()).Logger(),
+		myAddr:   r.myAddr,
+		rpc:      r,
+		done:     done,
+		encoders: encoders,
+		mailbox:  mailbox,
+		loopback: loopback,
 	}
 }
 
