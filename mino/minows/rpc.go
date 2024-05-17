@@ -2,7 +2,7 @@ package minows
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/gob"
 	"errors"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -160,14 +160,14 @@ func (r rpc) unicast(ctx context.Context, dest address, req serde.Message) (
 		return nil, xerrors.Errorf("could not open stream: %v", err)
 	}
 
-	out := json.NewEncoder(stream)
-	err = r.send(out, req)
+	dec := gob.NewEncoder(stream)
+	err = r.send(dec, req)
 	if err != nil {
 		return nil, xerrors.Errorf("could not send request: %v", err)
 	}
 
-	in := json.NewDecoder(stream)
-	_, reply, err := r.receive(in)
+	enc := gob.NewDecoder(stream)
+	_, reply, err := r.receive(enc)
 	if err != nil {
 		return nil, xerrors.Errorf("could not receive reply: %v", err)
 	}
@@ -195,12 +195,14 @@ func (r rpc) openStream(ctx context.Context, dest address,
 
 func (r rpc) createSession(ctx context.Context,
 	streams []network.Stream, withLoopback bool) *session {
-	result := make(chan envelope)
+	result := make(chan envelope, 1000)
 	done := make(chan any)
-	listen := func(decoder *json.Decoder, id peer.ID) {
+	listen := func(dec *gob.Decoder, id peer.ID) {
 		for {
-			from, msg, err := r.receive(decoder)
-			author := address{identity: id, location: from}
+			// todo move down to case default & remove intermediate
+			//  result channel
+			from, msg, err := r.receive(dec)
+			author, err := newAddress(from, id)
 			select {
 			case <-done:
 				return
@@ -209,26 +211,27 @@ func (r rpc) createSession(ctx context.Context,
 		}
 	}
 
-	encoders := make(map[peer.ID]*json.Encoder)
+	encoders := make(map[peer.ID]*gob.Encoder)
 	for _, stream := range streams {
 		id := stream.Conn().RemotePeer()
-		encoder := json.NewEncoder(stream)
+		encoder := gob.NewEncoder(stream)
 		encoders[id] = encoder
-		decoder := json.NewDecoder(stream)
+		decoder := gob.NewDecoder(stream)
 		go listen(decoder, id)
 	}
 
-	mailbox := make(chan envelope)
+	mailbox := make(chan envelope, 1000)
 	deliver := func() {
 		for {
 			select {
 			// Initiator ended session by canceling context
+			// 	TODO remove
 			case <-ctx.Done():
 				close(done)
 				return
 			case env := <-result:
 				// Cancelling context resets stream and ends
-				// session for players too
+				// session for both initiator and players
 				if xerrors.Is(env.err, network.ErrReset) {
 					close(done)
 					return
@@ -241,11 +244,11 @@ func (r rpc) createSession(ctx context.Context,
 
 	var loopback chan envelope
 	if withLoopback {
-		loopback = make(chan envelope)
+		loopback = make(chan envelope, 1000)
 		loop := &session{
 			logger: r.logger.With().Stringer("loopback", xid.New()).Logger(),
 			myAddr: r.myAddr, done: done,
-			encoders: make(map[peer.ID]*json.Encoder),
+			encoders: make(map[peer.ID]*gob.Encoder),
 			mailbox:  loopback, loopback: mailbox,
 		}
 		go func() {
@@ -262,7 +265,7 @@ func (r rpc) createSession(ctx context.Context,
 	}
 }
 
-func (r rpc) send(out *json.Encoder, msg serde.Message) error {
+func (r rpc) send(enc *gob.Encoder, msg serde.Message) error {
 	from := r.myAddr.location.Bytes()
 
 	var payload []byte
@@ -274,7 +277,7 @@ func (r rpc) send(out *json.Encoder, msg serde.Message) error {
 		payload = bytes
 	}
 
-	err := out.Encode(&Packet{Source: from, Payload: payload})
+	err := enc.Encode(&Packet{Source: from, Payload: payload})
 	if errors.Is(err, network.ErrReset) {
 		return err
 	}
@@ -284,9 +287,9 @@ func (r rpc) send(out *json.Encoder, msg serde.Message) error {
 	return nil
 }
 
-func (r rpc) receive(in *json.Decoder) (ma.Multiaddr, serde.Message, error) {
+func (r rpc) receive(dec *gob.Decoder) (ma.Multiaddr, serde.Message, error) {
 	var packet Packet
-	err := in.Decode(&packet)
+	err := dec.Decode(&packet)
 	if errors.Is(err, network.ErrReset) {
 		return nil, nil, err
 	}
@@ -315,21 +318,25 @@ func (r rpc) receive(in *json.Decoder) (ma.Multiaddr, serde.Message, error) {
 func (r rpc) createCallHandler(h mino.Handler) network.StreamHandler {
 	return func(stream network.Stream) {
 		handle := func() error {
-			in := json.NewDecoder(stream)
-			from, req, err := r.receive(in)
+			dec := gob.NewDecoder(stream)
+			from, req, err := r.receive(dec)
 			if err != nil {
 				return xerrors.Errorf("could not receive: %v", err)
 			}
 
 			id := stream.Conn().RemotePeer()
-			author := address{identity: id, location: from}
+			author, err := newAddress(from, id)
+			if err != nil {
+				return xerrors.Errorf("could not create address: %v", err)
+			}
+
 			reply, err := h.Process(mino.Request{Address: author, Message: req})
 			if err != nil {
 				return xerrors.Errorf("could not process: %v", err)
 			}
 
-			out := json.NewEncoder(stream)
-			err = r.send(out, reply)
+			enc := gob.NewEncoder(stream)
+			err = r.send(enc, reply)
 			if err != nil {
 				return xerrors.Errorf("could not reply: %v", err)
 			}

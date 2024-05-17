@@ -2,15 +2,18 @@ package minows
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/gob"
+	"errors"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/rs/zerolog"
 	"go.dedis.ch/dela/mino"
 	"go.dedis.ch/dela/serde"
 	"golang.org/x/xerrors"
+	"io"
 )
 
-var errSessionEnded = xerrors.New("session ended")
+// var errSessionEnded = xerrors.New("session ended")
 
 type envelope struct {
 	addr mino.Address
@@ -29,7 +32,7 @@ type session struct {
 	myAddr   address
 	rpc      rpc
 	done     chan any
-	encoders map[peer.ID]*json.Encoder
+	encoders map[peer.ID]*gob.Encoder
 	mailbox  chan envelope
 	loopback chan envelope
 }
@@ -39,53 +42,98 @@ type session struct {
 // closes when the message has either been sent or errored to each address.
 func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 	send := func(addr mino.Address) error {
-		dest, ok := addr.(address)
+		to, ok := addr.(address)
 		if !ok {
 			return xerrors.Errorf("wrong address type: %T", addr)
 		}
-		if dest.Equal(s.myAddr) {
-			if s.loopback == nil {
-				return xerrors.Errorf("address %v not a player", dest)
-			}
-			go func() {
-				s.loopback <- envelope{addr: s.myAddr, msg: msg}
-			}()
+		if to.Equal(s.myAddr) && s.loopback != nil {
+			// if to.Equal(s.myAddr) {
+			// if s.loopback == nil {
+			// 	return xerrors.Errorf("%v not a player", to)
+			// }
+			// go func() { // todo unnecessary
+			// todo don't send if done closed (stream only to self ended)
+			// todo add a unit test: Stream() Send() then cancel(
+			//  ) err <- Send()
+			s.loopback <- envelope{addr: s.myAddr, msg: msg}
+			// }()
 			return nil
 		}
-		encoder, ok := s.encoders[dest.identity]
-		if !ok {
-			return xerrors.Errorf("address %v not a player", dest)
+		encoder, ok := s.encoders[to.identity]
+		// if !ok {
+		// 	return xerrors.Errorf("%v not a player", to)
+		// }
+		// return s.rpc.send(encoder, msg)
+		if ok {
+			return s.rpc.send(encoder, msg)
 		}
-		return s.rpc.send(encoder, msg)
+		return xerrors.Errorf("%v not a player", to)
 	}
 
 	result := make(chan envelope, len(addrs))
-	for _, dest := range addrs {
-		go func(dest mino.Address) {
-			err := send(dest)
-			result <- envelope{addr: dest, err: err}
-		}(dest)
+	for _, to := range addrs {
+		to := to
+		go func() {
+			select {
+			case <-s.done:
+			default:
+				result <- envelope{addr: to, err: send(to)}
+			}
+		}()
 	}
 
 	errs := make(chan error, len(addrs))
-	go func() {
+	end := func() {
 		defer close(errs)
 		for i := 0; i < len(addrs); i++ {
 			select {
 			case <-s.done:
-				errs <- errSessionEnded
+				errs <- io.ErrClosedPipe
 				return
 			case env := <-result:
-				if env.err != nil {
-					errs <- xerrors.Errorf("could not send to %v: %v",
-						env.addr, env.err)
+				if errors.Is(env.err, network.ErrReset) {
+					errs <- io.ErrClosedPipe
 					return
+				}
+				if env.err != nil {
+					errs <- xerrors.Errorf(
+						"could not send to %v: %v", env.addr, env.err)
+					continue
 				}
 				s.logger.Trace().Stringer("to", env.addr).
 					Msgf("sent %v", msg)
 			}
 		}
-	}()
+	}
+	go end()
+
+	// result := make(chan envelope, len(addrs))
+	// for _, dest := range addrs {
+	// 	go func(dest mino.Address) {
+	// 		err := send(dest)
+	// 		result <- envelope{addr: dest, err: err}
+	// 	}(dest)
+	// }
+	//
+	// // errs := make(chan error, len(addrs))
+	// go func() {
+	// 	defer close(errs)
+	// 	for i := 0; i < len(addrs); i++ {
+	// 		select {
+	// 		case <-s.done:
+	// 			errs <- errSessionEnded // todo io.ErrClosedPipe usage search
+	// 			return
+	// 		case env := <-result:
+	// 			if env.err != nil {
+	// 				errs <- xerrors.Errorf("could not send to %v: %v",
+	// 					env.addr, env.err)
+	// 				return
+	// 			}
+	// 			s.logger.Trace().Stringer("to", env.addr).
+	// 				Msgf("sent %v", msg)
+	// 		}
+	// 	}
+	// }()
 	return errs
 }
 
@@ -95,7 +143,7 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 func (s session) Recv(ctx context.Context) (mino.Address, serde.Message, error) {
 	select {
 	case <-s.done:
-		return nil, nil, errSessionEnded
+		return nil, nil, io.EOF
 	case env := <-s.mailbox:
 		s.logger.Trace().Stringer("from", env.addr).
 			Msgf("received %v", env.msg)

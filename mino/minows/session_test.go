@@ -5,6 +5,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.dedis.ch/dela/mino"
 	"go.dedis.ch/dela/testing/fake"
+	"io"
 	"testing"
 	"time"
 )
@@ -118,11 +119,12 @@ func Test_session_Send_SessionEnded(t *testing.T) {
 	defer stop()
 	mustCreateRPC(t, player, "test", handler)
 
+	// todo to initiator too
 	s, _, stop := mustCreateSession(t, r, player)
 	stop()
 
 	errs := s.Send(fake.Message{}, player.GetAddress())
-	require.ErrorContains(t, <-errs, "session ended")
+	require.ErrorIs(t, <-errs, io.ErrClosedPipe)
 	_, open := <-errs
 	require.False(t, open)
 }
@@ -240,6 +242,7 @@ func Test_session_Recv_SessionEnded(t *testing.T) {
 	defer stop()
 	mustCreateRPC(t, player, "test", handler)
 
+	// todo to initiator too
 	sender, receiver, stop := mustCreateSession(t, r, player)
 	errs := sender.Send(fake.Message{}, player.GetAddress())
 	require.NoError(t, <-errs)
@@ -249,7 +252,7 @@ func Test_session_Recv_SessionEnded(t *testing.T) {
 	defer cancel()
 
 	_, _, err := receiver.Recv(ctx)
-	require.ErrorContains(t, err, "session ended")
+	require.ErrorIs(t, err, io.EOF)
 }
 
 func Test_session_Recv_ContextCancelled(t *testing.T) {
