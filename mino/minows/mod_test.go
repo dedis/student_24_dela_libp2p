@@ -6,7 +6,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
-	"go.dedis.ch/dela/mino"
 	"testing"
 )
 
@@ -24,6 +23,7 @@ func TestNewMinows(t *testing.T) {
 	}{
 		"ws": {
 			args: args{
+				// todo mustCreateMultiaddress() in test function
 				listen: mustCreateMultiaddress(t, listen),
 				public: mustCreateMultiaddress(t, publicWS),
 			},
@@ -34,12 +34,14 @@ func TestNewMinows(t *testing.T) {
 				public: mustCreateMultiaddress(t, publicWSS),
 			},
 		},
+		// todo extract own test function
 		"no public": {
 			args: args{
 				listen: mustCreateMultiaddress(t, listen),
 				public: nil,
 			},
 		},
+		// todo extract own test function
 		"random": {
 			args: args{
 				listen: mustCreateMultiaddress(t, random),
@@ -216,14 +218,16 @@ func Test_minows_CreateRPC(t *testing.T) {
 	require.NotNil(t, r4)
 }
 
-func mustCreateMinows(t *testing.T, listen string, public string) (mino.Mino,
+func mustCreateMinows(t *testing.T, listen string, public string) (*minows,
 	func()) {
 	key := mustCreateKey(t)
-	m, err := NewMinows(mustCreateMultiaddress(t, listen),
-		mustCreateMultiaddress(t, public), key)
+	lis := mustCreateMultiaddress(t, listen)
+	pub := mustCreateMultiaddress(t, public)
+	m, err := NewMinows(lis, pub, key)
 	require.NoError(t, err)
-	stop := func() { require.NoError(t, m.(*minows).stop()) }
-	return m, stop
+	ws := m.(*minows)
+	stop := func() { require.NoError(t, ws.stop()) }
+	return ws, stop
 }
 
 func mustCreateKey(t *testing.T) crypto.PrivKey {

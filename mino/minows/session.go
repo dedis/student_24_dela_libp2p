@@ -3,8 +3,6 @@ package minows
 import (
 	"context"
 	"encoding/gob"
-	"errors"
-	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/rs/zerolog"
 	"go.dedis.ch/dela/mino"
@@ -12,8 +10,6 @@ import (
 	"golang.org/x/xerrors"
 	"io"
 )
-
-// var errSessionEnded = xerrors.New("session ended")
 
 type envelope struct {
 	addr mino.Address
@@ -70,20 +66,53 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 		return xerrors.Errorf("%v not a player", to)
 	}
 
+	// result := make(chan envelope, len(addrs))
+	// for _, to := range addrs {
+	// 	to := to
+	// 	go func() {
+	// 		select {
+	// 		case <-s.done:
+	// 		default:
+	// 			result <- envelope{addr: to, err: send(to)}
+	// 		}
+	// 	}()
+	// }
+	//
+	// errs := make(chan error, len(addrs))
+	// end := func() {
+	// 	defer close(errs)
+	// 	for i := 0; i < len(addrs); i++ {
+	// 		select {
+	// 		case <-s.done:
+	// 			errs <- io.ErrClosedPipe
+	// 			return
+	// 		case env := <-result:
+	// 			if errors.Is(env.err, network.ErrReset) {
+	// 				errs <- io.ErrClosedPipe
+	// 				return
+	// 			}
+	// 			if env.err != nil {
+	// 				errs <- xerrors.Errorf(
+	// 					"could not send to %v: %v", env.addr, env.err)
+	// 				continue
+	// 			}
+	// 			s.logger.Trace().Stringer("to", env.addr).
+	// 				Msgf("sent %v", msg)
+	// 		}
+	// 	}
+	// }
+	// go end()
+
 	result := make(chan envelope, len(addrs))
-	for _, to := range addrs {
-		to := to
-		go func() {
-			select {
-			case <-s.done:
-			default:
-				result <- envelope{addr: to, err: send(to)}
-			}
-		}()
+	for _, dest := range addrs {
+		go func(dest mino.Address) {
+			err := send(dest)
+			result <- envelope{addr: dest, err: err}
+		}(dest)
 	}
 
 	errs := make(chan error, len(addrs))
-	end := func() {
+	go func() {
 		defer close(errs)
 		for i := 0; i < len(addrs); i++ {
 			select {
@@ -91,49 +120,16 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 				errs <- io.ErrClosedPipe
 				return
 			case env := <-result:
-				if errors.Is(env.err, network.ErrReset) {
-					errs <- io.ErrClosedPipe
-					return
-				}
 				if env.err != nil {
-					errs <- xerrors.Errorf(
-						"could not send to %v: %v", env.addr, env.err)
-					continue
+					errs <- xerrors.Errorf("could not send to %v: %v",
+						env.addr, env.err)
+					return
 				}
 				s.logger.Trace().Stringer("to", env.addr).
 					Msgf("sent %v", msg)
 			}
 		}
-	}
-	go end()
-
-	// result := make(chan envelope, len(addrs))
-	// for _, dest := range addrs {
-	// 	go func(dest mino.Address) {
-	// 		err := send(dest)
-	// 		result <- envelope{addr: dest, err: err}
-	// 	}(dest)
-	// }
-	//
-	// // errs := make(chan error, len(addrs))
-	// go func() {
-	// 	defer close(errs)
-	// 	for i := 0; i < len(addrs); i++ {
-	// 		select {
-	// 		case <-s.done:
-	// 			errs <- errSessionEnded // todo io.ErrClosedPipe usage search
-	// 			return
-	// 		case env := <-result:
-	// 			if env.err != nil {
-	// 				errs <- xerrors.Errorf("could not send to %v: %v",
-	// 					env.addr, env.err)
-	// 				return
-	// 			}
-	// 			s.logger.Trace().Stringer("to", env.addr).
-	// 				Msgf("sent %v", msg)
-	// 		}
-	// 	}
-	// }()
+	}()
 	return errs
 }
 
