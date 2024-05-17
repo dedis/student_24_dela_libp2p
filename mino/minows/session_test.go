@@ -11,7 +11,7 @@ import (
 )
 
 func Test_session_Send(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -42,7 +42,7 @@ func Test_session_Send(t *testing.T) {
 }
 
 func Test_session_Send_ToSelf(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -68,7 +68,7 @@ func Test_session_Send_ToSelf(t *testing.T) {
 }
 
 func Test_session_Send_WrongAddressType(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -87,7 +87,7 @@ func Test_session_Send_WrongAddressType(t *testing.T) {
 }
 
 func Test_session_Send_AddressNotPlayer(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -108,29 +108,33 @@ func Test_session_Send_AddressNotPlayer(t *testing.T) {
 }
 
 func Test_session_Send_SessionEnded(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
-	r := mustCreateRPC(t, initiator, "test", handler)
+	rpc := mustCreateRPC(t, initiator, "test", handler)
 
 	const addrPlayer = "/ip4/127.0.0.1/tcp/6002/ws"
 	player, stop := mustCreateMinows(t, addrPlayer, addrPlayer)
 	defer stop()
 	mustCreateRPC(t, player, "test", handler)
 
-	// todo to initiator too
-	s, _, stop := mustCreateSession(t, r, player)
+	s, r, stop := mustCreateSession(t, rpc, initiator, player)
 	stop()
 
-	errs := s.Send(fake.Message{}, player.GetAddress())
+	errs := s.Send(fake.Message{}, initiator.GetAddress(), player.GetAddress())
 	require.ErrorIs(t, <-errs, io.ErrClosedPipe)
 	_, open := <-errs
 	require.False(t, open)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _, err := r.Recv(ctx)
+	require.ErrorIs(t, err, io.EOF)
 }
 
 func Test_session_Recv(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -182,7 +186,7 @@ func Test_session_Recv(t *testing.T) {
 }
 
 func Test_session_Recv_FromSelf(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -231,32 +235,35 @@ func Test_session_Recv_FromSelf(t *testing.T) {
 }
 
 func Test_session_Recv_SessionEnded(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
-	r := mustCreateRPC(t, initiator, "test", handler)
+	rpc := mustCreateRPC(t, initiator, "test", handler)
 
 	const addrPlayer = "/ip4/127.0.0.1/tcp/6002/ws"
 	player, stop := mustCreateMinows(t, addrPlayer, addrPlayer)
 	defer stop()
 	mustCreateRPC(t, player, "test", handler)
 
-	// todo to initiator too
-	sender, receiver, stop := mustCreateSession(t, r, player)
-	errs := sender.Send(fake.Message{}, player.GetAddress())
-	require.NoError(t, <-errs)
-	stop()
+	s, r, stop := mustCreateSession(t, rpc, initiator, player)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	errs := s.Send(fake.Message{}, initiator.GetAddress(), player.GetAddress())
+	_, open := <-errs
+	require.False(t, open)
+
+	// todo 1 sec
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
 	defer cancel()
 
-	_, _, err := receiver.Recv(ctx)
+	stop()
+	<-s.(*session).done // todo remove
+	_, _, err := r.Recv(ctx)
 	require.ErrorIs(t, err, io.EOF)
 }
 
 func Test_session_Recv_ContextCancelled(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -286,6 +293,7 @@ func mustCreateSession(t *testing.T, rpc mino.RPC,
 	players := mino.NewAddresses(addrs...)
 	stop := func() {
 		cancel()
+		<-ctx.Done()
 	}
 	s, r, err := rpc.Stream(ctx, players)
 	require.NoError(t, err)

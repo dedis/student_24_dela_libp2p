@@ -3,6 +3,7 @@ package minows
 import (
 	"context"
 	"encoding/gob"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/rs/zerolog"
 	"go.dedis.ch/dela/mino"
@@ -43,76 +44,30 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 			return xerrors.Errorf("wrong address type: %T", addr)
 		}
 		if to.Equal(s.myAddr) && s.loopback != nil {
-			// if to.Equal(s.myAddr) {
-			// if s.loopback == nil {
-			// 	return xerrors.Errorf("%v not a player", to)
-			// }
-			// go func() { // todo unnecessary
-			// todo don't send if done closed (stream only to self ended)
-			// todo add a unit test: Stream() Send() then cancel(
-			//  ) err <- Send()
 			s.loopback <- envelope{addr: s.myAddr, msg: msg}
-			// }()
 			return nil
 		}
 		encoder, ok := s.encoders[to.identity]
-		// if !ok {
-		// 	return xerrors.Errorf("%v not a player", to)
-		// }
-		// return s.rpc.send(encoder, msg)
 		if ok {
 			return s.rpc.send(encoder, msg)
 		}
 		return xerrors.Errorf("%v not a player", to)
 	}
 
-	// result := make(chan envelope, len(addrs))
-	// for _, to := range addrs {
-	// 	to := to
-	// 	go func() {
-	// 		select {
-	// 		case <-s.done:
-	// 		default:
-	// 			result <- envelope{addr: to, err: send(to)}
-	// 		}
-	// 	}()
-	// }
-	//
-	// errs := make(chan error, len(addrs))
-	// end := func() {
-	// 	defer close(errs)
-	// 	for i := 0; i < len(addrs); i++ {
-	// 		select {
-	// 		case <-s.done:
-	// 			errs <- io.ErrClosedPipe
-	// 			return
-	// 		case env := <-result:
-	// 			if errors.Is(env.err, network.ErrReset) {
-	// 				errs <- io.ErrClosedPipe
-	// 				return
-	// 			}
-	// 			if env.err != nil {
-	// 				errs <- xerrors.Errorf(
-	// 					"could not send to %v: %v", env.addr, env.err)
-	// 				continue
-	// 			}
-	// 			s.logger.Trace().Stringer("to", env.addr).
-	// 				Msgf("sent %v", msg)
-	// 		}
-	// 	}
-	// }
-	// go end()
-
 	result := make(chan envelope, len(addrs))
-	for _, dest := range addrs {
-		go func(dest mino.Address) {
-			err := send(dest)
-			result <- envelope{addr: dest, err: err}
-		}(dest)
+	for _, to := range addrs {
+		to := to
+		go func() {
+			select {
+			case <-s.done:
+			default:
+				result <- envelope{addr: to, err: send(to)}
+			}
+		}()
 	}
 
 	errs := make(chan error, len(addrs))
-	go func() {
+	end := func() {
 		defer close(errs)
 		for i := 0; i < len(addrs); i++ {
 			select {
@@ -120,16 +75,22 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 				errs <- io.ErrClosedPipe
 				return
 			case env := <-result:
-				if env.err != nil {
-					errs <- xerrors.Errorf("could not send to %v: %v",
-						env.addr, env.err)
+				if xerrors.Is(env.err, network.ErrReset) {
+					errs <- io.ErrClosedPipe
 					return
+				}
+				if env.err != nil {
+					errs <- xerrors.Errorf(
+						"could not send to %v: %v", env.addr, env.err)
+					continue
 				}
 				s.logger.Trace().Stringer("to", env.addr).
 					Msgf("sent %v", msg)
 			}
 		}
-	}()
+	}
+	go end()
+
 	return errs
 }
 
@@ -140,11 +101,16 @@ func (s session) Recv(ctx context.Context) (mino.Address, serde.Message, error) 
 	select {
 	case <-s.done:
 		return nil, nil, io.EOF
-	case env := <-s.mailbox:
+	// case env := <-s.mailbox:
+	// 	s.logger.Trace().Stringer("from", env.addr).
+	// 		Msgf("received %v", env.msg)
+	// 	return env.addr, env.msg, env.err
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	default:
+		env := <-s.mailbox
 		s.logger.Trace().Stringer("from", env.addr).
 			Msgf("received %v", env.msg)
 		return env.addr, env.msg, env.err
-	case <-ctx.Done():
-		return nil, nil, ctx.Err()
 	}
 }

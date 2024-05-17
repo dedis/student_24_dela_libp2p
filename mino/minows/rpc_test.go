@@ -10,7 +10,7 @@ import (
 )
 
 func Test_rpc_Call(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -40,7 +40,7 @@ func Test_rpc_Call(t *testing.T) {
 }
 
 func Test_rpc_Call_ToSelf(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -64,7 +64,7 @@ func Test_rpc_Call_ToSelf(t *testing.T) {
 }
 
 func Test_rpc_Call_NoPlayers(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -80,7 +80,7 @@ func Test_rpc_Call_NoPlayers(t *testing.T) {
 }
 
 func Test_rpc_Call_WrongAddressType(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -101,7 +101,7 @@ func Test_rpc_Call_WrongAddressType(t *testing.T) {
 }
 
 func Test_rpc_Call_DiffNamespace(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -129,7 +129,7 @@ func Test_rpc_Call_DiffNamespace(t *testing.T) {
 }
 
 func Test_rpc_Call_ContextCancelled(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -152,7 +152,7 @@ func Test_rpc_Call_ContextCancelled(t *testing.T) {
 }
 
 func Test_rpc_Stream(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -174,7 +174,7 @@ func Test_rpc_Stream(t *testing.T) {
 }
 
 func Test_rpc_Stream_ToSelf(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -191,7 +191,7 @@ func Test_rpc_Stream_ToSelf(t *testing.T) {
 }
 
 func Test_rpc_Stream_NoPlayers(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -206,7 +206,7 @@ func Test_rpc_Stream_NoPlayers(t *testing.T) {
 }
 
 func Test_rpc_Stream_WrongAddressType(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -221,7 +221,7 @@ func Test_rpc_Stream_WrongAddressType(t *testing.T) {
 }
 
 func Test_rpc_Stream_ContextCancelled(t *testing.T) {
-	handler := &testHandler{}
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
@@ -239,21 +239,21 @@ func Test_rpc_Stream_ContextCancelled(t *testing.T) {
 	require.Error(t, err)
 }
 
-// testHandler implements mino.Handler
+// echoHandler implements mino.Handler
 // Captures senders of received messages for test assertions and
 // echos back the same message
 // - implements mino.Handler
-type testHandler struct {
+type echoHandler struct {
 	from []mino.Address
 }
 
-func (h *testHandler) Process(req mino.Request) (resp serde.Message,
+func (h *echoHandler) Process(req mino.Request) (resp serde.Message,
 	err error) {
 	h.from = append(h.from, req.Address)
 	return req.Message, nil
 }
 
-func (h *testHandler) Stream(out mino.Sender, in mino.Receiver) error {
+func (h *echoHandler) Stream(out mino.Sender, in mino.Receiver) error {
 	for {
 		from, msg, err := in.Recv(context.Background())
 		if err != nil {
