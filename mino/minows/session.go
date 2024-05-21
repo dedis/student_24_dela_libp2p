@@ -15,7 +15,7 @@ import (
 const loopbackBufferSize = 16
 
 type envelope struct {
-	addr mino.Address // todo rename from
+	from mino.Address
 	msg  serde.Message
 	err  error
 }
@@ -53,7 +53,7 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 			case <-s.done:
 				return network.ErrReset
 			default:
-				s.buffer <- envelope{addr: s.myAddr, msg: msg}
+				s.buffer <- envelope{from: s.myAddr, msg: msg}
 			}
 			return nil
 		}
@@ -68,7 +68,7 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 	for _, addr := range addrs {
 		go func(dest mino.Address) {
 			err := send(dest)
-			result <- envelope{addr: dest, err: err}
+			result <- envelope{from: dest, err: err}
 		}(addr)
 	}
 
@@ -83,10 +83,10 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 			}
 			if env.err != nil {
 				errs <- xerrors.Errorf("could not send to %v: %v",
-					env.addr, env.err)
+					env.from, env.err)
 				continue
 			}
-			s.logger.Trace().Stringer("to", env.addr).
+			s.logger.Trace().Stringer("to", env.from).
 				Msgf("sent %v", msg)
 		}
 	}()
@@ -103,8 +103,8 @@ func (s session) Recv(ctx context.Context) (mino.Address, serde.Message, error) 
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
 	case env := <-s.in:
-		s.logger.Trace().Stringer("from", env.addr).
+		s.logger.Trace().Stringer("from", env.from).
 			Msgf("received %v", env.msg)
-		return env.addr, env.msg, env.err
+		return env.from, env.msg, env.err
 	}
 }

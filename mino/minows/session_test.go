@@ -247,17 +247,13 @@ func Test_session_Recv_SessionEnded(t *testing.T) {
 	mustCreateRPC(t, player, "test", handler)
 
 	s, r, stop := mustCreateSession(t, rpc, initiator, player)
-
 	errs := s.Send(fake.Message{}, initiator.GetAddress(), player.GetAddress())
 	_, open := <-errs
 	require.False(t, open)
-
-	// todo 1 sec
-	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
-	defer cancel()
-
 	stop()
-	<-s.(*session).done // todo remove
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 	_, _, err := r.Recv(ctx)
 	require.ErrorIs(t, err, io.EOF)
 }

@@ -81,9 +81,9 @@ func (r rpc) Call(ctx context.Context, req serde.Message,
 				return
 			case env := <-result:
 				if env.err != nil {
-					responses <- mino.NewResponseWithError(env.addr, env.err)
+					responses <- mino.NewResponseWithError(env.from, env.err)
 				} else {
-					responses <- mino.NewResponse(env.addr, env.msg)
+					responses <- mino.NewResponse(env.from, env.msg)
 				}
 			}
 		}
@@ -221,26 +221,25 @@ func (r rpc) createSession(ctx context.Context,
 	}
 
 	go func() {
-		for {
-			select {
-			// Initiator ended session by canceling context
-			case <-ctx.Done():
+		for env := range result {
+			// Cancelling context resets stream and ends session for
+			// participants
+			if xerrors.Is(env.err, network.ErrReset) {
 				close(done)
 				return
-			case env := <-result:
-				// Cancelling context resets stream and ends session for
-				// participants
-				if xerrors.Is(env.err, network.ErrReset) {
-					close(done)
-					return
-				}
-				select {
-				case <-done:
-					return
-				case in <- env:
-				}
+			}
+			select {
+			case <-done:
+				return
+			case in <- env:
 			}
 		}
+	}()
+
+	go func() {
+		// Initiator ended session by canceling context
+		<-ctx.Done()
+		close(done)
 	}()
 
 	return &session{
