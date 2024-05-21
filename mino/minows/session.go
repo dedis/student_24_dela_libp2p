@@ -28,12 +28,12 @@ type envelope struct {
 type session struct {
 	logger zerolog.Logger
 
-	myAddr   address
-	rpc      rpc
-	done     chan any
-	encoders map[peer.ID]*gob.Encoder // todo rename outs
-	loopback chan envelope            // todo rename buffer??
-	mailbox  chan envelope            // todo rename in
+	myAddr address
+	rpc    rpc
+	done   chan any
+	outs   map[peer.ID]*gob.Encoder
+	in     chan envelope
+	buffer chan envelope
 }
 
 // Send multicasts a message to some players of this session concurrently.
@@ -46,19 +46,18 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 			return xerrors.Errorf("wrong address type: %T", addr)
 		}
 		if to.Equal(s.myAddr) {
-			// todo refactor with same error below to one
-			if s.loopback == nil {
+			if s.buffer == nil {
 				return xerrors.Errorf("address %v not a player", to)
 			}
 			select {
 			case <-s.done:
 				return network.ErrReset
 			default:
-				s.loopback <- envelope{addr: s.myAddr, msg: msg}
+				s.buffer <- envelope{addr: s.myAddr, msg: msg}
 			}
 			return nil
 		}
-		encoder, ok := s.encoders[to.identity]
+		encoder, ok := s.outs[to.identity]
 		if !ok {
 			return xerrors.Errorf("address %v not a player", to)
 		}
@@ -103,7 +102,7 @@ func (s session) Recv(ctx context.Context) (mino.Address, serde.Message, error) 
 		return nil, nil, io.EOF
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
-	case env := <-s.mailbox:
+	case env := <-s.in:
 		s.logger.Trace().Stringer("from", env.addr).
 			Msgf("received %v", env.msg)
 		return env.addr, env.msg, env.err

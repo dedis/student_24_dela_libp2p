@@ -191,57 +191,13 @@ func (r rpc) openStream(ctx context.Context, dest address,
 }
 
 func (r rpc) createSession(ctx context.Context,
-	streams []network.Stream, withLoopback bool) *session {
+	streams []network.Stream, loopback bool) *session {
 	done := make(chan any)
-	loopback := make(chan envelope, loopbackBufferSize)
-	mailbox := make(chan envelope)
-	if withLoopback { // todo rename loopback??
-		loopback := func(in chan envelope) *session { // todo set up loopback
-			loopback := &session{
-				logger:   r.logger.With().Stringer("session", xid.New()).Logger(),
-				myAddr:   r.myAddr,
-				done:     done,
-				encoders: make(map[peer.ID]*gob.Encoder),
-				mailbox:  make(chan envelope),
-				loopback: make(chan envelope, loopbackBufferSize),
-			}
-			go func() { // todo listen
-				for {
-					select {
-					case <-loopback.done:
-						return
-					case env := <-in:
-						select {
-						case <-loopback.done:
-							return
-						case loopback.mailbox <- env:
-						}
-					}
-				}
-			}()
-			go func() { // todo handle stream
-				err := r.handler.Stream(loopback, loopback)
-				if err != nil {
-					r.logger.Error().Err(err).Msg("could not handle stream")
-				}
-			}()
-			return loopback
-		}(loopback)
-		// todo listen for loopback replies
-		go func() {
-			for {
-				select {
-				case <-done:
-					return
-				case env := <-loopback.loopback:
-					select {
-					case <-done:
-						return
-					case mailbox <- env:
-					}
-				}
-			}
-		}()
+	buffer := make(chan envelope, loopbackBufferSize)
+	in := make(chan envelope)
+	if loopback {
+		lb := r.setupLoopback(done, buffer)
+		go listenLoopback(done, lb.buffer, in)
 	}
 
 	result := make(chan envelope)
@@ -254,7 +210,6 @@ func (r rpc) createSession(ctx context.Context,
 		go func() {
 			for {
 				from, msg, err := r.receive(decoder)
-				// todo remove newAddress()??
 				author := address{location: from, identity: id}
 				select {
 				case <-done:
@@ -282,20 +237,54 @@ func (r rpc) createSession(ctx context.Context,
 				select {
 				case <-done:
 					return
-				case mailbox <- env:
+				case in <- env:
 				}
 			}
 		}
 	}()
 
 	return &session{
-		logger:   r.logger.With().Stringer("session", xid.New()).Logger(),
-		myAddr:   r.myAddr,
-		rpc:      r,
-		done:     done,
-		encoders: encoders,
-		mailbox:  mailbox,
-		loopback: loopback,
+		logger: r.logger.With().Stringer("session", xid.New()).Logger(),
+		myAddr: r.myAddr,
+		rpc:    r,
+		done:   done,
+		outs:   encoders,
+		in:     in,
+		buffer: buffer,
+	}
+}
+
+func (r rpc) setupLoopback(done chan any, buffer chan envelope) *session {
+	loopback := &session{
+		logger: r.logger.With().Stringer("session", xid.New()).Logger(),
+		myAddr: r.myAddr,
+		done:   done,
+		outs:   make(map[peer.ID]*gob.Encoder),
+		in:     make(chan envelope),
+		buffer: make(chan envelope, loopbackBufferSize),
+	}
+	go listenLoopback(done, buffer, loopback.in)
+	go func() {
+		err := r.handler.Stream(loopback, loopback)
+		if err != nil {
+			r.logger.Error().Err(err).Msg("could not handle stream")
+		}
+	}()
+	return loopback
+}
+
+func listenLoopback(done chan any, buffer chan envelope, in chan envelope) {
+	for {
+		select {
+		case <-done:
+			return
+		case env := <-buffer:
+			select {
+			case <-done:
+				return
+			case in <- env:
+			}
+		}
 	}
 }
 

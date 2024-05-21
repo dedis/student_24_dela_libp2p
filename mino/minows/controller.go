@@ -9,8 +9,6 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// TODO move to /cli folder and rename to mod.go
-
 // controller
 // - implements node.Initializer
 type controller struct{}

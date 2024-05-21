@@ -11,49 +11,22 @@ import (
 
 func TestNewMinows(t *testing.T) {
 	const listen = "/ip4/0.0.0.0/tcp/6000/ws"
-	const random = "/ip4/127.0.0.1/tcp/0/ws"
-	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
-	const publicWSS = "/ip4/127.0.0.1/tcp/443/wss"
-	type args struct {
-		listen ma.Multiaddr
-		public ma.Multiaddr
-	}
+	const ws = "/ip4/127.0.0.1/tcp/6000/ws"
+	const wss = "/ip4/127.0.0.1/tcp/443/wss"
 	var tests = map[string]struct {
-		args args
+		listen string
+		public string
 	}{
-		"ws": {
-			args: args{
-				// todo mustCreateMultiaddress() in test function
-				listen: mustCreateMultiaddress(t, listen),
-				public: mustCreateMultiaddress(t, publicWS),
-			},
-		},
-		"wss": {
-			args: args{
-				listen: mustCreateMultiaddress(t, listen),
-				public: mustCreateMultiaddress(t, publicWSS),
-			},
-		},
-		// todo extract own test function
-		"no public": {
-			args: args{
-				listen: mustCreateMultiaddress(t, listen),
-				public: nil,
-			},
-		},
-		// todo extract own test function
-		"random": {
-			args: args{
-				listen: mustCreateMultiaddress(t, random),
-				public: nil,
-			},
-		},
+		"ws":  {listen: listen, public: ws},
+		"wss": {listen: listen, public: wss},
 	}
+	key := mustCreateKey(t)
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			key := mustCreateKey(t)
+			listen := mustCreateMultiaddress(t, tt.listen)
+			public := mustCreateMultiaddress(t, tt.public)
 
-			m, err := NewMinows(tt.args.listen, tt.args.public, key)
+			m, err := NewMinows(listen, public, key)
 			require.NoError(t, err)
 			require.NotNil(t, m)
 			require.IsType(t, &minows{}, m)
@@ -62,10 +35,31 @@ func TestNewMinows(t *testing.T) {
 	}
 }
 
+func TestNewMinows_OptionalPublic(t *testing.T) {
+	listen := mustCreateMultiaddress(t, "/ip4/0.0.0.0/tcp/6000/ws")
+	random := mustCreateMultiaddress(t, "/ip4/127.0.0.1/tcp/0/ws")
+	tests := map[string]ma.Multiaddr{
+		"no public":     listen,
+		"random listen": random,
+	}
+	key := mustCreateKey(t)
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			m, err := NewMinows(tt, nil, key)
+			require.NoError(t, err)
+			require.NotNil(t, m)
+			require.IsType(t, &minows{}, m)
+			require.NoError(t, m.(*minows).stop())
+		})
+
+	}
+}
+
 func Test_minows_GetAddressFactory(t *testing.T) {
 	const listen = "/ip4/0.0.0.0/tcp/6000"
-	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
-	const publicWSS = "/ip4/127.0.0.1/tcp/443/wss"
+	const ws = "/ip4/127.0.0.1/tcp/6000/ws"
+	const wss = "/ip4/127.0.0.1/tcp/443/wss"
 	type m struct {
 		listen string
 		public string
@@ -73,8 +67,8 @@ func Test_minows_GetAddressFactory(t *testing.T) {
 	tests := map[string]struct {
 		m m
 	}{
-		"ws":  {m{listen, publicWS}},
-		"wss": {m{listen, publicWSS}},
+		"ws":  {m{listen, ws}},
+		"wss": {m{listen, wss}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -91,7 +85,7 @@ func Test_minows_GetAddressFactory(t *testing.T) {
 func Test_minows_GetAddress(t *testing.T) {
 	const listen = "/ip4/127.0.0.1/tcp/6000"
 	const publicWS = "/ip4/127.0.0.1/tcp/80/ws"
-	const publicWSS = "/ip4/127.0.0.1/tcp/443/wss"
+	const wss = "/ip4/127.0.0.1/tcp/443/wss"
 	key := mustCreateKey(t)
 	id := mustDerivePeerID(t, key).String()
 	type m struct {
@@ -108,7 +102,7 @@ func Test_minows_GetAddress(t *testing.T) {
 		want want
 	}{
 		"ws":        {m{listen, publicWS, key}, want{publicWS, id}},
-		"wss":       {m{listen, publicWSS, key}, want{publicWSS, id}},
+		"wss":       {m{listen, wss, key}, want{wss, id}},
 		"no public": {m{listen, "", key}, want{listen, id}},
 	}
 	for name, tt := range tests {
@@ -141,8 +135,8 @@ func Test_minows_GetAddress_Random(t *testing.T) {
 
 func Test_minows_WithSegment_Empty(t *testing.T) {
 	const listen = "/ip4/0.0.0.0/tcp/6000"
-	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
-	m, stop := mustCreateMinows(t, listen, publicWS)
+	const ws = "/ip4/127.0.0.1/tcp/6000/ws"
+	m, stop := mustCreateMinows(t, listen, ws)
 	defer stop()
 
 	got := m.WithSegment("")
@@ -151,8 +145,8 @@ func Test_minows_WithSegment_Empty(t *testing.T) {
 
 func Test_minows_WithSegment(t *testing.T) {
 	const listen = "/ip4/0.0.0.0/tcp/6000"
-	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
-	m, stop := mustCreateMinows(t, listen, publicWS)
+	const ws = "/ip4/127.0.0.1/tcp/6000/ws"
+	m, stop := mustCreateMinows(t, listen, ws)
 	defer stop()
 
 	got := m.WithSegment("test")
@@ -165,8 +159,8 @@ func Test_minows_WithSegment(t *testing.T) {
 
 func Test_minows_CreateRPC_InvalidName(t *testing.T) {
 	const listen = "/ip4/0.0.0.0/tcp/6000"
-	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
-	m, stop := mustCreateMinows(t, listen, publicWS)
+	const ws = "/ip4/127.0.0.1/tcp/6000/ws"
+	m, stop := mustCreateMinows(t, listen, ws)
 	defer stop()
 
 	_, err := m.CreateRPC("invalid name", nil, nil)
@@ -175,8 +169,8 @@ func Test_minows_CreateRPC_InvalidName(t *testing.T) {
 
 func Test_minows_CreateRPC_AlreadyExists(t *testing.T) {
 	const listen = "/ip4/0.0.0.0/tcp/6000"
-	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
-	m, stop := mustCreateMinows(t, listen, publicWS)
+	const ws = "/ip4/127.0.0.1/tcp/6000/ws"
+	m, stop := mustCreateMinows(t, listen, ws)
 	defer stop()
 
 	_, err := m.CreateRPC("test", nil, nil)
@@ -187,8 +181,8 @@ func Test_minows_CreateRPC_AlreadyExists(t *testing.T) {
 
 func Test_minows_CreateRPC_InvalidSegment(t *testing.T) {
 	const listen = "/ip4/0.0.0.0/tcp/6000"
-	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
-	m, stop := mustCreateMinows(t, listen, publicWS)
+	const ws = "/ip4/127.0.0.1/tcp/6000/ws"
+	m, stop := mustCreateMinows(t, listen, ws)
 	defer stop()
 	m = m.WithSegment("invalid segment").(*minows)
 
@@ -198,8 +192,8 @@ func Test_minows_CreateRPC_InvalidSegment(t *testing.T) {
 
 func Test_minows_CreateRPC(t *testing.T) {
 	const listen = "/ip4/0.0.0.0/tcp/6000"
-	const publicWS = "/ip4/127.0.0.1/tcp/6000/ws"
-	m, stop := mustCreateMinows(t, listen, publicWS)
+	const ws = "/ip4/127.0.0.1/tcp/6000/ws"
+	m, stop := mustCreateMinows(t, listen, ws)
 	defer stop()
 
 	r1, err := m.CreateRPC("test", nil, nil)
