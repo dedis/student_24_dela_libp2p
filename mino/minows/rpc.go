@@ -229,17 +229,13 @@ func (r rpc) createSession(ctx context.Context,
 				return
 			}
 			select {
-			case <-done:
+			// Initiator ended session by canceling context
+			case <-ctx.Done():
+				close(done)
 				return
 			case in <- env:
 			}
 		}
-	}()
-
-	go func() {
-		// Initiator ended session by canceling context
-		<-ctx.Done()
-		close(done)
 	}()
 
 	return &session{
