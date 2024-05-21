@@ -14,9 +14,8 @@ import (
 
 const loopbackBufferSize = 16
 
-// todo rename packet
 type envelope struct {
-	addr mino.Address // todo rename source
+	addr mino.Address // todo rename from
 	msg  serde.Message
 	err  error
 }
@@ -78,20 +77,18 @@ func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 	go func() {
 		defer close(errs)
 		for i := 0; i < len(addrs); i++ {
-			select {
-			case env := <-result:
-				if xerrors.Is(env.err, network.ErrReset) {
-					errs <- io.ErrClosedPipe
-					return
-				}
-				if env.err != nil {
-					errs <- xerrors.Errorf("could not send to %v: %v",
-						env.addr, env.err)
-					return
-				}
-				s.logger.Trace().Stringer("to", env.addr).
-					Msgf("sent %v", msg)
+			env := <-result
+			if xerrors.Is(env.err, network.ErrReset) {
+				errs <- io.ErrClosedPipe
+				return
 			}
+			if env.err != nil {
+				errs <- xerrors.Errorf("could not send to %v: %v",
+					env.addr, env.err)
+				continue
+			}
+			s.logger.Trace().Stringer("to", env.addr).
+				Msgf("sent %v", msg)
 		}
 	}()
 	return errs

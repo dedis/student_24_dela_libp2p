@@ -190,7 +190,6 @@ func (r rpc) openStream(ctx context.Context, dest address,
 	return stream, nil
 }
 
-// todo remove ctx
 func (r rpc) createSession(ctx context.Context,
 	streams []network.Stream, withLoopback bool) *session {
 	done := make(chan any)
@@ -398,10 +397,10 @@ func toAddresses(players mino.Players) ([]address, error) {
 	addrs := make([]address, 0, players.Len())
 	iter := players.AddressIterator()
 	for iter.HasNext() {
-		next := iter.GetNext()
-		addr, ok := next.(address)
+		player := iter.GetNext()
+		addr, ok := player.(address)
 		if !ok {
-			return nil, xerrors.Errorf("wrong address type: %T", next)
+			return nil, xerrors.Errorf("wrong address type: %T", player)
 		}
 		addrs = append(addrs, addr)
 	}
