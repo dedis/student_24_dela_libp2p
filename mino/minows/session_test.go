@@ -121,6 +121,7 @@ func Test_session_Send_SessionEnded(t *testing.T) {
 
 	s, r, stop := mustCreateSession(t, rpc, initiator, player)
 	stop()
+	time.Sleep(1 * time.Second)
 
 	errs := s.Send(fake.Message{}, initiator.GetAddress(), player.GetAddress())
 	require.ErrorIs(t, <-errs, io.ErrClosedPipe)
@@ -251,6 +252,7 @@ func Test_session_Recv_SessionEnded(t *testing.T) {
 	_, open := <-errs
 	require.False(t, open)
 	stop()
+	time.Sleep(1 * time.Second)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
