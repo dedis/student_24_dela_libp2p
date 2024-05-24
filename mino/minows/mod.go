@@ -10,7 +10,6 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	ma "github.com/multiformats/go-multiaddr"
 	"go.dedis.ch/dela/mino"
@@ -32,26 +31,27 @@ type minows struct {
 	factory  addressFactory
 }
 
-// newMinows creates a new Minows instance.
-// listen: local listening address in multiaddress format,
-// e.g. /ip4/0.0.0.0/tcp/80/ws
+// NewMinows creates a new Minows instance that starts listening.
+// listen: listening address in multiaddress format,
+// e.g. /ip4/0.0.0.0/tcp/0/ or /ip4/127.0.0.1/tcp/80/ws
 // public: public dial-able address in multiaddress format,
 // e.g. /dns4/p2p-1.c4dt.dela.org/tcp/443/wss
-// secret: private key representing this mino instance's identity
-func newMinows(listen, public ma.Multiaddr, secret crypto.PrivKey) (*minows,
+// `public` can be nil and will be determined
+// by the listening address and the port the host has bound to.
+// key: private key representing this mino instance's identity
+func NewMinows(listen, public ma.Multiaddr, key crypto.PrivKey) (mino.Mino,
 	error) {
-	id, err := peer.IDFromPrivateKey(secret)
+	h, err := libp2p.New(libp2p.ListenAddrs(listen), libp2p.Identity(key))
 	if err != nil {
-		return nil, xerrors.Errorf("could not derive identity: %w", err)
-	}
-	myAddr, err := newAddress(public, id)
-	if err != nil {
-		return nil, xerrors.Errorf("could not create address: %v", err)
+		return nil, xerrors.Errorf("could not start host: %v", err)
 	}
 
-	h, err := libp2p.New(libp2p.ListenAddrs(listen), libp2p.Identity(secret))
+	if public == nil {
+		public = h.Addrs()[0]
+	}
+	myAddr, err := newAddress(public, h.ID())
 	if err != nil {
-		return nil, xerrors.Errorf("could not create host: %v", err)
+		return nil, xerrors.Errorf("could not create public address: %v", err)
 	}
 
 	return &minows{

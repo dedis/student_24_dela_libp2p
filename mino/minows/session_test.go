@@ -192,7 +192,7 @@ func Test_session_Recv_ContextCancelled(t *testing.T) {
 }
 
 func mustCreateSession(t *testing.T, rpc mino.RPC,
-	minos ...*minows) (mino.Sender, mino.Receiver, func()) {
+	minos ...mino.Mino) (mino.Sender, mino.Receiver, func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var addrs []mino.Address
 	for _, m := range minos {

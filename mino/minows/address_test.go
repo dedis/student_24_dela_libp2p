@@ -252,6 +252,9 @@ func mustCreateAddress(t *testing.T, location, identity string) address {
 }
 
 func mustCreateMultiaddress(t *testing.T, address string) ma.Multiaddr {
+	if address == "" {
+		return nil
+	}
 	multiaddr, err := ma.NewMultiaddr(address)
 	require.NoError(t, err)
 	return multiaddr

@@ -31,14 +31,14 @@ func init() {
 // Use the value contract
 // Check the state
 func TestIntegration_Value_Simple(t *testing.T) {
-	t.Run("3 nodes", getTest[*testing.T](3, 2))
+	t.Run("3 nodes", getTest[*testing.T](3, 2, "grpc"))
 }
 
 func BenchmarkValue(b *testing.B) {
-	getTest[*testing.B](5, b.N)(b)
+	getTest[*testing.B](5, b.N, "grpc")(b)
 }
 
-func getTest[T require.TestingT](numNode, numTx int) func(t T) {
+func getTest[T require.TestingT](numNode, numTx int, kind string) func(t T) {
 	return func(t T) {
 		dir, err := os.MkdirTemp(os.TempDir(), "dela-integration-test")
 		require.NoError(t, err)
@@ -50,7 +50,8 @@ func getTest[T require.TestingT](numNode, numTx int) func(t T) {
 		nodes := make([]dela, numNode)
 
 		for i := range nodes {
-			node := newDelaNode(t, filepath.Join(dir, "node"+strconv.Itoa(i)), 0)
+			node := newDelaNode(t, filepath.Join(dir,
+				"node"+strconv.Itoa(i)), 0, kind)
 			nodes[i] = node
 		}
 
