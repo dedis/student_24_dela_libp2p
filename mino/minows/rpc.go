@@ -193,6 +193,12 @@ func (r rpc) openStream(ctx context.Context, dest address,
 func (r rpc) createSession(ctx context.Context,
 	streams []network.Stream, loopback bool) *session {
 	done := make(chan any)
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		<-ctx.Done()
+		close(done)
+	}()
+
 	buffer := make(chan envelope, loopbackBufferSize)
 	in := make(chan envelope)
 	if loopback {
@@ -225,13 +231,12 @@ func (r rpc) createSession(ctx context.Context,
 			// Cancelling context resets stream and ends session for
 			// participants
 			if xerrors.Is(env.err, network.ErrReset) {
-				close(done)
+				cancel()
 				return
 			}
 			select {
 			// Initiator ended session by canceling context
-			case <-ctx.Done():
-				close(done)
+			case <-done:
 				return
 			case in <- env:
 			}
