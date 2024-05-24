@@ -2,14 +2,16 @@ package minows
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/gob"
 	"errors"
+	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	ma "github.com/multiformats/go-multiaddr"
+	"github.com/rs/xid"
 	"github.com/rs/zerolog"
-	"go.dedis.ch/dela"
 	"go.dedis.ch/dela/mino"
 	"go.dedis.ch/dela/serde"
 	"golang.org/x/xerrors"
@@ -20,7 +22,7 @@ const pathStream = "/stream"
 
 // Packet encapsulates a message sent over the network streams.
 type Packet struct {
-	Author  []byte
+	Source  []byte
 	Payload []byte
 }
 
@@ -29,7 +31,10 @@ type Packet struct {
 type rpc struct {
 	logger zerolog.Logger
 
+	myAddr  address
 	uri     string
+	host    host.Host
+	handler mino.Handler
 	mino    *minows
 	factory serde.Factory
 	context serde.Context
@@ -38,7 +43,7 @@ type rpc struct {
 // Call sends a request to all players concurrently and fills the response
 // channel with replies or errors from the network.
 // Call is asynchronous and returns immediately either an error or a response
-// channel that is closed when each player has replied or errored,
+// channel that is closed when each player has replied,
 // or the context is done.
 func (r rpc) Call(ctx context.Context, req serde.Message,
 	players mino.Players) (<-chan mino.Response, error) {
@@ -53,28 +58,33 @@ func (r rpc) Call(ctx context.Context, req serde.Message,
 
 	r.addPeers(addrs)
 
-	result := make(chan mino.Response, len(addrs))
+	result := make(chan envelope, len(addrs))
 	for _, addr := range addrs {
-		go func(addr address) {
-			author, reply, err := r.unicast(ctx, addr, req)
-			if err != nil {
-				result <- mino.NewResponseWithError(addr, err)
-				return
-			}
-			result <- mino.NewResponse(author, reply)
-		}(addr)
+		if r.myAddr.Equal(addr) {
+			request := mino.Request{Address: r.myAddr, Message: req}
+			reply, err := r.handler.Process(request)
+			result <- envelope{r.myAddr, reply, err}
+		} else {
+			go func(addr address) {
+				reply, err := r.unicast(ctx, addr, req)
+				result <- envelope{addr, reply, err}
+			}(addr)
+		}
 	}
 
 	responses := make(chan mino.Response, len(addrs))
 	go func() {
 		defer close(responses)
-
 		for i := 0; i < len(addrs); i++ {
 			select {
 			case <-ctx.Done():
 				return
-			case res := <-result:
-				responses <- res
+			case env := <-result:
+				if env.err != nil {
+					responses <- mino.NewResponseWithError(env.from, env.err)
+				} else {
+					responses <- mino.NewResponse(env.from, env.msg)
+				}
 			}
 		}
 	}()
@@ -99,7 +109,13 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 
 	result := make(chan network.Stream, len(addrs))
 	errs := make(chan error, len(addrs))
+	selfDial := false
+	remote := 0
 	for _, addr := range addrs {
+		if addr.Equal(r.myAddr) {
+			selfDial = true
+			continue
+		}
 		go func(addr address) {
 			stream, err := r.openStream(ctx, addr, pathStream)
 			if err != nil {
@@ -108,10 +124,11 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 			}
 			result <- stream
 		}(addr)
+		remote++
 	}
 
-	streams := make([]network.Stream, 0, len(addrs))
-	for i := 0; i < len(addrs); i++ {
+	streams := make([]network.Stream, 0, remote)
+	for i := 0; i < remote; i++ {
 		select {
 		case <-ctx.Done():
 			return nil, nil, ctx.Err()
@@ -122,42 +139,42 @@ func (r rpc) Stream(ctx context.Context, players mino.Players) (mino.Sender, min
 		}
 	}
 
-	sess := r.createSession(streams)
+	sess := r.createSession(ctx, streams, selfDial)
 	return sess, sess, nil
 }
 
 func (r rpc) addPeers(addrs []address) {
 	for _, addr := range addrs {
-		r.mino.host.Peerstore().AddAddr(addr.identity, addr.location,
+		r.host.Peerstore().AddAddr(addr.identity, addr.location,
 			peerstore.PermanentAddrTTL)
 	}
 }
 
 func (r rpc) unicast(ctx context.Context, dest address, req serde.Message) (
-	mino.Address, serde.Message, error) {
+	serde.Message, error) {
 	stream, err := r.openStream(ctx, dest, pathCall)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("could not open stream: %v", err)
+		return nil, xerrors.Errorf("could not open stream: %v", err)
 	}
 
-	out := json.NewEncoder(stream)
-	err = r.send(out, req)
+	dec := gob.NewEncoder(stream)
+	err = r.send(dec, req)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("could not send request: %v", err)
+		return nil, xerrors.Errorf("could not send request: %v", err)
 	}
 
-	in := json.NewDecoder(stream)
-	author, reply, err := r.receive(in)
+	enc := gob.NewDecoder(stream)
+	_, reply, err := r.receive(enc)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("could not receive reply: %v", err)
+		return nil, xerrors.Errorf("could not receive reply: %v", err)
 	}
-	return author, reply, nil
+	return reply, nil
 }
 
 func (r rpc) openStream(ctx context.Context, dest address,
 	path string) (network.Stream, error) {
 	pid := protocol.ID(r.uri + path)
-	stream, err := r.mino.host.NewStream(ctx, dest.identity, pid)
+	stream, err := r.host.NewStream(ctx, dest.identity, pid)
 	if err != nil {
 		return nil, xerrors.Errorf("could not open stream: %v", err)
 	}
@@ -173,65 +190,112 @@ func (r rpc) openStream(ctx context.Context, dest address,
 	return stream, nil
 }
 
-func (r rpc) createSession(streams []network.Stream) *session {
-	ins := make(map[address]*json.Decoder, len(streams))
-	outs := make(map[peer.ID]*json.Encoder, len(streams))
-	for _, stream := range streams {
-		remote := address{stream.Conn().RemoteMultiaddr(),
-			stream.Conn().RemotePeer()}
-		ins[remote] = json.NewDecoder(stream)
-		outs[stream.Conn().RemotePeer()] = json.NewEncoder(stream)
+func (r rpc) createSession(ctx context.Context,
+	streams []network.Stream, loopback bool) *session {
+	done := make(chan any)
+	buffer := make(chan envelope, loopbackBufferSize)
+	in := make(chan envelope)
+	if loopback {
+		lb := r.setupLoopback(done, buffer)
+		go listenLoopback(done, lb.buffer, in)
 	}
 
 	result := make(chan envelope)
-	done := make(chan any)
-	for from, in := range ins {
-		go func(from address, in *json.Decoder) {
+	encoders := make(map[peer.ID]*gob.Encoder)
+	for _, stream := range streams {
+		id := stream.Conn().RemotePeer()
+		encoder := gob.NewEncoder(stream)
+		encoders[id] = encoder
+		decoder := gob.NewDecoder(stream)
+		go func() {
 			for {
-				var env envelope
-				author, msg, err := r.receive(in)
-				if err != nil {
-					env = envelope{author: from, err: err}
-				} else {
-					env = envelope{author: author, msg: msg}
-				}
+				from, msg, err := r.receive(decoder)
+				author := address{location: from, identity: id}
 				select {
 				case <-done:
 					return
-				case result <- env:
+				case result <- envelope{author, msg, err}:
 				}
 			}
-		}(from, in)
+		}()
 	}
 
-	in := make(chan envelope)
 	go func() {
-		for {
-			env := <-result
-			if errors.Is(env.err, network.ErrReset) {
+		for env := range result {
+			// Cancelling context resets stream and ends session for
+			// participants
+			if xerrors.Is(env.err, network.ErrReset) {
 				close(done)
-				close(in)
 				return
 			}
-			in <- env
+			select {
+			// Initiator ended session by canceling context
+			case <-ctx.Done():
+				close(done)
+				return
+			case in <- env:
+			}
 		}
 	}()
 
-	return &session{rpc: r, in: in, outs: outs}
+	return &session{
+		logger: r.logger.With().Stringer("session", xid.New()).Logger(),
+		myAddr: r.myAddr,
+		rpc:    r,
+		done:   done,
+		outs:   encoders,
+		in:     in,
+		buffer: buffer,
+	}
 }
 
-func (r rpc) send(out *json.Encoder, msg serde.Message) error {
-	author, err := r.mino.myAddr.MarshalText()
-	if err != nil {
-		return xerrors.Errorf("could not marshal address: %v", err)
+func (r rpc) setupLoopback(done chan any, buffer chan envelope) *session {
+	loopback := &session{
+		logger: r.logger.With().Stringer("session", xid.New()).Logger(),
+		myAddr: r.myAddr,
+		done:   done,
+		outs:   make(map[peer.ID]*gob.Encoder),
+		in:     make(chan envelope),
+		buffer: make(chan envelope, loopbackBufferSize),
+	}
+	go listenLoopback(done, buffer, loopback.in)
+	go func() {
+		err := r.handler.Stream(loopback, loopback)
+		if err != nil {
+			r.logger.Error().Err(err).Msg("could not handle stream")
+		}
+	}()
+	return loopback
+}
+
+func listenLoopback(done chan any, buffer chan envelope, in chan envelope) {
+	for {
+		select {
+		case <-done:
+			return
+		case env := <-buffer:
+			select {
+			case <-done:
+				return
+			case in <- env:
+			}
+		}
+	}
+}
+
+func (r rpc) send(enc *gob.Encoder, msg serde.Message) error {
+	from := r.myAddr.location.Bytes()
+
+	var payload []byte
+	if msg != nil {
+		bytes, err := msg.Serialize(r.context)
+		if err != nil {
+			return xerrors.Errorf("could not serialize message: %v", err)
+		}
+		payload = bytes
 	}
 
-	payload, err := msg.Serialize(r.context)
-	if err != nil {
-		return xerrors.Errorf("could not serialize message: %v", err)
-	}
-
-	err = out.Encode(&Packet{author, payload})
+	err := enc.Encode(&Packet{Source: from, Payload: payload})
 	if errors.Is(err, network.ErrReset) {
 		return err
 	}
@@ -241,9 +305,9 @@ func (r rpc) send(out *json.Encoder, msg serde.Message) error {
 	return nil
 }
 
-func (r rpc) receive(in *json.Decoder) (mino.Address, serde.Message, error) {
+func (r rpc) receive(dec *gob.Decoder) (ma.Multiaddr, serde.Message, error) {
 	var packet Packet
-	err := in.Decode(&packet)
+	err := dec.Decode(&packet)
 	if errors.Is(err, network.ErrReset) {
 		return nil, nil, err
 	}
@@ -251,55 +315,63 @@ func (r rpc) receive(in *json.Decoder) (mino.Address, serde.Message, error) {
 		return nil, nil, xerrors.Errorf("could not decode packet: %v", err)
 	}
 
-	author := r.mino.GetAddressFactory().FromText(packet.Author)
-	if author == nil {
+	from, err := ma.NewMultiaddrBytes(packet.Source)
+	if err != nil {
 		return nil, nil, xerrors.Errorf("could not unmarshal address: %v",
-			packet.Author)
+			packet.Source)
 	}
 
+	if packet.Payload == nil {
+		return from, nil, nil
+	}
 	msg, err := r.factory.Deserialize(r.context, packet.Payload)
 	if err != nil {
-		return nil, nil, xerrors.Errorf(
+		return from, nil, xerrors.Errorf(
 			"could not deserialize message: %v",
 			err)
 	}
-	return author, msg, nil
+	return from, msg, nil
 }
 
 func (r rpc) createCallHandler(h mino.Handler) network.StreamHandler {
 	return func(stream network.Stream) {
-		in := json.NewDecoder(stream)
-		from, req, err := r.receive(in)
-		if err != nil {
-			r.logger.Error().Err(err).Msg(
-				"could not receive call")
-			return
-		}
+		handle := func() error {
+			dec := gob.NewDecoder(stream)
+			from, req, err := r.receive(dec)
+			if err != nil {
+				return xerrors.Errorf("could not receive: %v", err)
+			}
 
-		reply, err := h.Process(mino.Request{Address: from, Message: req})
-		if err != nil {
-			r.logger.Error().Err(err).Msg("could not process call")
-			return
-		}
+			id := stream.Conn().RemotePeer()
+			author := address{location: from, identity: id}
+			reply, err := h.Process(mino.Request{Address: author, Message: req})
+			if err != nil {
+				return xerrors.Errorf("could not process: %v", err)
+			}
 
-		out := json.NewEncoder(stream)
-		err = r.send(out, reply)
+			enc := gob.NewEncoder(stream)
+			err = r.send(enc, reply)
+			if err != nil {
+				return xerrors.Errorf("could not reply: %v", err)
+			}
+			return nil
+		}
+		err := handle()
 		if err != nil {
-			r.logger.Error().Err(err).Msg("could not reply to call")
-			return
+			r.logger.Error().Err(err).Msg("could not handle call")
 		}
 	}
 }
 
 func (r rpc) createStreamHandler(h mino.Handler) network.StreamHandler {
 	return func(stream network.Stream) {
-		sess := r.createSession([]network.Stream{stream})
+		sess := r.createSession(context.Background(),
+			[]network.Stream{stream}, false)
 
 		go func() {
 			err := h.Stream(sess, sess)
 			if err != nil {
-				dela.Logger.Error().Err(err).Msg("could not handle stream")
-				return
+				r.logger.Error().Err(err).Msg("could not handle stream")
 			}
 		}()
 	}
@@ -309,10 +381,10 @@ func toAddresses(players mino.Players) ([]address, error) {
 	addrs := make([]address, 0, players.Len())
 	iter := players.AddressIterator()
 	for iter.HasNext() {
-		next := iter.GetNext()
-		addr, ok := next.(address)
+		player := iter.GetNext()
+		addr, ok := player.(address)
 		if !ok {
-			return nil, xerrors.Errorf("wrong address type: %T", next)
+			return nil, xerrors.Errorf("wrong address type: %T", player)
 		}
 		addrs = append(addrs, addr)
 	}

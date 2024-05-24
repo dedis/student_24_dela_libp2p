@@ -33,7 +33,7 @@ type minows struct {
 
 // NewMinows creates a new Minows instance that starts listening.
 // listen: listening address in multiaddress format,
-// e.g. /ip4/0.0.0.0/tcp/0/ or /ip4/127.0.0.1/tcp/80/ws
+// e.g. /ip4/127.0.0.1/tcp/80/ws
 // public: public dial-able address in multiaddress format,
 // e.g. /dns4/p2p-1.c4dt.dela.org/tcp/443/wss
 // `public` can be nil and will be determined
@@ -78,11 +78,12 @@ func (m *minows) WithSegment(segment string) mino.Mino {
 	}
 
 	return &minows{
+		logger:   m.logger,
 		myAddr:   m.myAddr,
 		segments: append(m.segments, segment),
 		host:     m.host,
 		rpcs:     make(map[string]any),
-		factory:  m.factory,
+		factory:  addressFactory{},
 	}
 }
 
@@ -107,7 +108,10 @@ func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 
 	r := &rpc{
 		logger:  m.logger.With().Str("rpc", uri).Logger(),
+		myAddr:  m.myAddr,
 		uri:     uri,
+		host:    m.host,
+		handler: h,
 		mino:    m,
 		factory: f,
 		context: json.NewContext(),
