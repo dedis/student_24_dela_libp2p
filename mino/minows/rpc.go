@@ -48,7 +48,9 @@ type rpc struct {
 func (r rpc) Call(ctx context.Context, req serde.Message,
 	players mino.Players) (<-chan mino.Response, error) {
 	if players == nil || players.Len() == 0 {
-		return nil, xerrors.New("no players")
+		resp := make(chan mino.Response)
+		close(resp)
+		return resp, nil
 	}
 
 	addrs, err := toAddresses(players)
