@@ -139,7 +139,7 @@ func doSend(addrs []mino.Address, send func(addr mino.Address) error,
 			err := send(addr)
 			if err != nil {
 				errs <- xerrors.Errorf("could not send to %v: %v", addr, err)
-				logger.Error().Err(err).Msgf("could not send %T to %v", msg, addr)
+				logger.Warn().Err(err).Msgf("could not send %T to %v", msg, addr)
 				return
 			}
 			logger.Debug().Msgf("sent %T to %v", msg, addr)
@@ -177,7 +177,7 @@ func doReceive(ctx context.Context, in chan Packet,
 		}
 		origin, msg, err := unpack(packet)
 		if err != nil {
-			logger.Error().Err(err).Msg("could not receive")
+			logger.Warn().Err(err).Msg("could not receive")
 			return nil, nil, xerrors.Errorf("could not receive from %v: %v",
 				origin, err)
 		}

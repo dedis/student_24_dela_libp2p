@@ -136,6 +136,7 @@ func Test_session_Send_SessionEnded(t *testing.T) {
 
 	s, _, stop := mustStream(t, rpc, initiator, player)
 	stop()
+	wait()
 
 	errs := s.Send(fake.Message{}, initiator.GetAddress(), player.GetAddress())
 	require.ErrorContains(t, <-errs, network.ErrReset.Error())
