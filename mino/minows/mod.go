@@ -51,7 +51,7 @@ func NewMinows(listen, public ma.Multiaddr, key crypto.PrivKey) (mino.Mino,
 	}
 	myAddr, err := newAddress(public, h.ID())
 	if err != nil {
-		return nil, xerrors.Errorf("could not create public address: %v", err)
+		return nil, xerrors.Errorf("could not create address: %v", err)
 	}
 
 	return &minows{
@@ -108,19 +108,15 @@ func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 
 	r := &rpc{
 		logger:  m.logger.With().Str("rpc", uri).Logger(),
-		myAddr:  m.myAddr,
 		uri:     uri,
-		host:    m.host,
 		handler: h,
 		mino:    m,
 		factory: f,
 		context: json.NewContext(),
 	}
 
-	pid, handler := protocol.ID(uri+pathCall), r.createCallHandler(h)
-	m.host.SetStreamHandler(pid, handler)
-	pid, handler = protocol.ID(uri+pathStream), r.createStreamHandler(h)
-	m.host.SetStreamHandler(pid, handler)
+	m.host.SetStreamHandler(protocol.ID(uri+pathCall), r.handleCall)
+	m.host.SetStreamHandler(protocol.ID(uri+pathStream), r.handleStream)
 	m.rpcs[name] = nil
 
 	return r, nil

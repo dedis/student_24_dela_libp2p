@@ -3,108 +3,185 @@ package minows
 import (
 	"context"
 	"encoding/gob"
-	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/rs/zerolog"
 	"go.dedis.ch/dela/mino"
 	"go.dedis.ch/dela/serde"
 	"golang.org/x/xerrors"
 	"io"
+	"sync"
 )
 
-const loopbackBufferSize = 16
+var ErrWrongAddressType = xerrors.New("wrong address type")
+var ErrNotPlayer = xerrors.New("not player")
 
-type envelope struct {
-	from mino.Address
-	msg  serde.Message
-	err  error
+// MaxUnreadAllowed Maximum number of unread messages allowed
+// in orchestrator's incoming message buffer before pausing relaying
+const MaxUnreadAllowed = 1e3
+
+type Forward struct {
+	Packet
+	Destination []byte
 }
 
-// session represents a stream session started by rpc.Stream()
-// between a minows instance and other players of the RPC.
-// A session ends for all participants when the initiator is done and cancels
-// the stream context.
-// - implements mino.Sender, mino.Receiver
-type session struct {
+type orchestrator struct {
+	logger zerolog.Logger
+
+	myAddr orchestratorAddr
+	rpc    rpc
+	// Connects to the participants
+	outs map[peer.ID]*gob.Encoder
+	in   chan Packet
+}
+
+func (o orchestrator) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
+	send := func(addr mino.Address) error {
+		var unwrapped address
+		switch a := addr.(type) {
+		case address:
+			unwrapped = a
+		case orchestratorAddr:
+			unwrapped = a.address
+		default:
+			return xerrors.Errorf("%v: %T", ErrWrongAddressType, addr)
+		}
+
+		encoder, ok := o.outs[unwrapped.identity]
+		if !ok {
+			return xerrors.Errorf("%v: %v", ErrNotPlayer, addr)
+		}
+		src, err := o.myAddr.MarshalText()
+		if err != nil {
+			return xerrors.Errorf("could not marshal address: %v", err)
+		}
+		payload, err := msg.Serialize(o.rpc.context)
+		if err != nil {
+			return xerrors.Errorf("could not serialize message: %v", err)
+		}
+
+		err = encoder.Encode(&Packet{Source: src, Payload: payload})
+		if err != nil {
+			return xerrors.Errorf("could not encode packet: %v", err)
+		}
+		return nil
+	}
+
+	errs := doSend(addrs, send, msg, o.logger)
+	return errs
+}
+
+func (o orchestrator) Recv(ctx context.Context) (mino.Address, serde.Message, error) {
+	return doReceive(ctx, o.in, o.rpc.mino.GetAddressFactory(), o.rpc.factory,
+		o.rpc.context, o.logger)
+}
+
+type participant struct {
 	logger zerolog.Logger
 
 	myAddr address
 	rpc    rpc
-	done   chan any
-	outs   map[peer.ID]*gob.Encoder
-	in     chan envelope
-	buffer chan envelope
+	// Connects to the orchestrator
+	out *gob.Encoder
+	in  chan Packet
 }
 
-// Send multicasts a message to some players of this session concurrently.
-// Send is asynchronous and returns immediately an error channel that
-// closes when the message has either been sent or errored to each address.
-func (s session) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
+func (p participant) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
 	send := func(addr mino.Address) error {
-		to, ok := addr.(address)
-		if !ok {
-			return xerrors.Errorf("wrong address type: %T", addr)
+		switch addr.(type) {
+		case address:
+		case orchestratorAddr:
+		default:
+			return xerrors.Errorf("%v: %T", ErrWrongAddressType, addr)
 		}
-		if to.Equal(s.myAddr) {
-			if s.buffer == nil {
-				return xerrors.Errorf("address %v not a player", to)
-			}
-			select {
-			case <-s.done:
-				return network.ErrReset
-			default:
-				s.buffer <- envelope{from: s.myAddr, msg: msg}
-			}
-			return nil
+
+		src, err := p.myAddr.MarshalText()
+		if err != nil {
+			return xerrors.Errorf("could not marshal address: %v", err)
 		}
-		encoder, ok := s.outs[to.identity]
-		if !ok {
-			return xerrors.Errorf("address %v not a player", to)
+		payload, err := msg.Serialize(p.rpc.context)
+		if err != nil {
+			return xerrors.Errorf("could not serialize message: %v", err)
 		}
-		return s.rpc.send(encoder, msg)
+		dest, err := addr.MarshalText()
+		if err != nil {
+			return xerrors.Errorf("could not marshal address: %v", err)
+		}
+
+		// Send to orchestrator to relay to the destination participant
+		forward := Forward{
+			Packet:      Packet{Source: src, Payload: payload},
+			Destination: dest,
+		}
+		err = p.out.Encode(&forward)
+		if err != nil {
+			return xerrors.Errorf("could not encode packet: %v", err)
+		}
+		return nil
 	}
 
-	result := make(chan envelope, len(addrs))
+	errs := doSend(addrs, send, msg, p.logger)
+	return errs
+}
+
+func (p participant) Recv(ctx context.Context) (mino.Address, serde.Message, error) {
+	return doReceive(ctx, p.in, p.rpc.mino.GetAddressFactory(),
+		p.rpc.factory, p.rpc.context, p.logger)
+}
+
+func doSend(addrs []mino.Address, send func(addr mino.Address) error,
+	msg serde.Message, logger zerolog.Logger) chan error {
+	errs := make(chan error, len(addrs))
+	var wg sync.WaitGroup
+	wg.Add(len(addrs))
 	for _, addr := range addrs {
-		go func(dest mino.Address) {
-			err := send(dest)
-			result <- envelope{from: dest, err: err}
+		go func(addr mino.Address) {
+			defer wg.Done()
+			err := send(addr)
+			if err != nil {
+				errs <- xerrors.Errorf("could not send to %v: %v", addr, err)
+				logger.Error().Err(err).Msgf("could not send %T to %v", msg, addr)
+				return
+			}
+			logger.Debug().Msgf("sent %T to %v", msg, addr)
 		}(addr)
 	}
 
-	errs := make(chan error, len(addrs))
 	go func() {
-		defer close(errs)
-		for i := 0; i < len(addrs); i++ {
-			env := <-result
-			if xerrors.Is(env.err, network.ErrReset) {
-				errs <- io.ErrClosedPipe
-				return
-			}
-			if env.err != nil {
-				errs <- xerrors.Errorf("could not send to %v: %v",
-					env.from, env.err)
-				continue
-			}
-			s.logger.Trace().Stringer("to", env.from).
-				Msgf("sent %v", msg)
-		}
+		wg.Wait()
+		close(errs)
 	}()
 	return errs
 }
 
-// Recv receives a message from the players of this session.
-// Recv is synchronous and returns when a message is received or the
-// context is done.
-func (s session) Recv(ctx context.Context) (mino.Address, serde.Message, error) {
+func doReceive(ctx context.Context, in chan Packet,
+	af mino.AddressFactory, f serde.Factory, c serde.Context,
+	logger zerolog.Logger) (mino.Address, serde.Message, error) {
+	unpack := func(packet Packet) (mino.Address, serde.Message, error) {
+		src := af.FromText(packet.Source)
+		if src == nil {
+			return nil, nil, xerrors.New("could not unmarshal address")
+		}
+		msg, err := f.Deserialize(c, packet.Payload)
+		if err != nil {
+			return src, nil, xerrors.Errorf("could not deserialize message: %v", err)
+		}
+		return src, msg, nil
+	}
+
 	select {
-	case <-s.done:
-		return nil, nil, io.EOF
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
-	case env := <-s.in:
-		s.logger.Trace().Stringer("from", env.from).
-			Msgf("received %v", env.msg)
-		return env.from, env.msg, env.err
+	case packet, open := <-in:
+		if !open {
+			return nil, nil, io.EOF
+		}
+		origin, msg, err := unpack(packet)
+		if err != nil {
+			logger.Error().Err(err).Msg("could not receive")
+			return nil, nil, xerrors.Errorf("could not receive from %v: %v",
+				origin, err)
+		}
+		logger.Debug().Msgf("received %T from %v", msg, origin)
+		return origin, msg, nil
 	}
 }

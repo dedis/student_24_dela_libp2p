@@ -76,7 +76,7 @@ func Test_rpc_Call_NoPlayers(t *testing.T) {
 	players := mino.NewAddresses()
 
 	_, err := r.Call(ctx, req, players)
-	require.ErrorContains(t, err, "no players")
+	require.Nil(t, err)
 }
 
 func Test_rpc_Call_WrongAddressType(t *testing.T) {
@@ -244,12 +244,14 @@ func Test_rpc_Stream_ContextCancelled(t *testing.T) {
 // echos back the same message
 // - implements mino.Handler
 type echoHandler struct {
-	from []mino.Address
+	from     []mino.Address
+	messages []serde.Message
 }
 
 func (h *echoHandler) Process(req mino.Request) (resp serde.Message,
 	err error) {
 	h.from = append(h.from, req.Address)
+	h.messages = append(h.messages, req.Message)
 	return req.Message, nil
 }
 
@@ -260,6 +262,7 @@ func (h *echoHandler) Stream(out mino.Sender, in mino.Receiver) error {
 			return err
 		}
 		h.from = append(h.from, from)
+		h.messages = append(h.messages, msg)
 		err = <-out.Send(msg, from)
 		if err != nil {
 			return err
