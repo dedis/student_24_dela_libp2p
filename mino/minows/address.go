@@ -1,7 +1,6 @@
 package minows
 
 import (
-	"fmt"
 	"go.dedis.ch/dela"
 	"strings"
 
@@ -37,13 +36,29 @@ func newAddress(location ma.Multiaddr, identity peer.ID) (address, error) {
 
 // Equal implements mino.Address.
 func (a address) Equal(other mino.Address) bool {
-	o, ok := other.(address)
-	return ok && a.location.Equal(o.location) && a.identity == o.identity
+	switch o := other.(type) {
+	case address:
+		return equalOrBothNil(a.location, o.location) && a.identity == o.identity
+	case orchestratorAddr:
+		return o.Equal(a)
+	}
+	return false
 }
 
 // String implements fmt.Stringer.
 func (a address) String() string {
-	return fmt.Sprintf("%s%s%s", a.location, protocolP2P, a.identity)
+	var sb strings.Builder
+
+	if a.location != nil {
+		sb.WriteString(a.location.String())
+	}
+
+	if a.identity.String() != "" {
+		sb.WriteString(protocolP2P)
+		sb.WriteString(a.identity.String())
+	}
+
+	return sb.String()
 }
 
 // ConnectionType implements mino.Address
@@ -54,12 +69,52 @@ func (a address) ConnectionType() mino.AddressConnectionType {
 
 // MarshalText implements encoding.TextMarshaler.
 func (a address) MarshalText() ([]byte, error) {
-	return []byte(fmt.Sprintf("%s%s%s", a.location, protocolP2P, a.identity)),
-		nil
+	location := ""
+	if a.location != nil {
+		location = a.location.String()
+	}
+	identity := a.identity.String()
+	return []byte(strings.Join([]string{location, identity}, ":")), nil
+}
+
+// - implements mino.Address
+type orchestratorAddr struct {
+	address
+}
+
+func newOrchestratorAddr(location ma.Multiaddr,
+	identity peer.ID) (orchestratorAddr, error) {
+	addr, err := newAddress(location, identity)
+	if err != nil {
+		return orchestratorAddr{}, err
+	}
+	return orchestratorAddr{addr}, nil
+}
+
+func (a orchestratorAddr) Equal(other mino.Address) bool {
+	switch o := other.(type) {
+	case orchestratorAddr:
+		return equalOrBothNil(a.location, o.location) && a.identity == o.identity
+	case address:
+		// Allows orchestrator to match its participant public address
+		return equalOrBothNil(a.location, o.location)
+	}
+	return false
+}
+
+func (a orchestratorAddr) MarshalText() ([]byte, error) {
+	data, _ := a.address.MarshalText()
+	return append(data, []byte(":o")...), nil
+}
+
+func equalOrBothNil(a, b ma.Multiaddr) bool {
+	if a != nil && b != nil {
+		return a.Equal(b)
+	}
+	return a == b
 }
 
 // addressFactory is a factory to deserialize Minows addresses.
-//
 // - implements mino.AddressFactory
 type addressFactory struct {
 	serde.Factory
@@ -69,26 +124,32 @@ type addressFactory struct {
 // from a byte slice or nil if anything fails.
 // - implements mino.AddressFactory
 func (f addressFactory) FromText(text []byte) mino.Address {
-	str := string(text)
-	loc, id, found := strings.Cut(str, protocolP2P)
-	if !found {
-		dela.Logger.Error().Msgf("%q misses p2p protocol", str)
+	parts := strings.Split(string(text), ":")
+	if len(parts) < 2 {
 		return nil
 	}
-	location, err := ma.NewMultiaddr(loc)
+
+	location, err := ma.NewMultiaddr(parts[0])
 	if err != nil {
-		dela.Logger.Error().Msgf("could not parse %q as multiaddress",
-			loc)
+		dela.Logger.Error().Err(err).
+			Msgf("could not parse multiaddress %q", parts[0])
 		return nil
 	}
-	identity, err := peer.Decode(id)
+	identity, err := peer.Decode(parts[1])
 	if err != nil {
-		dela.Logger.Error().Msgf("could not decode %q as peer ID", id)
+		dela.Logger.Error().Err(err).
+			Msgf("could not decode peer ID %q", parts[1])
 		return nil
 	}
-	addr, err := newAddress(location, identity)
+
+	var addr mino.Address
+	if len(parts) == 2 {
+		addr, err = newAddress(location, identity)
+	} else {
+		addr, err = newOrchestratorAddr(location, identity)
+	}
 	if err != nil {
-		dela.Logger.Error().Msgf("could not create address: %v", err)
+		dela.Logger.Error().Err(err).Msgf("could not create address")
 		return nil
 	}
 	return addr
