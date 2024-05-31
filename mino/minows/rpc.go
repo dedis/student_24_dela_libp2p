@@ -338,55 +338,6 @@ func (r rpc) createOrchestrator(ctx context.Context,
 		in:     make(chan Packet, MaxUnreadAllowed),
 	}
 
-	fetch := func(decoder *gob.Decoder) (Packet, mino.Address, error) {
-		var forward Forward
-		err := decoder.Decode(&forward)
-		if err != nil {
-			return Packet{}, nil,
-				xerrors.Errorf("could not decode packet: %v", err)
-		}
-		dest := r.mino.GetAddressFactory().
-			FromText(forward.Destination)
-		if dest == nil {
-			return Packet{}, nil,
-				xerrors.New("could not unmarshal address")
-		}
-		return forward.Packet, dest, nil
-	}
-
-	relay := func(packet Packet, dest address) error {
-		encoder, ok := encoders[dest.identity]
-		if !ok {
-			return xerrors.Errorf("%v: %v", ErrNotPlayer, dest)
-		}
-		err = encoder.Encode(packet)
-		if err != nil {
-			return xerrors.Errorf("could not encode packet: %v", err)
-		}
-		o.logger.Debug().Stringer("to", dest).Msgf("relayed packet")
-		return nil
-	}
-
-	receive := func(decoder *gob.Decoder) (Packet, error) {
-		for {
-			packet, dest, err := fetch(decoder)
-			if err != nil {
-				return Packet{}, xerrors.Errorf("could not receive: %v", err)
-			}
-			switch to := dest.(type) {
-			case orchestratorAddr:
-				if myAddr.Equal(to) {
-					return packet, nil
-				}
-			case address:
-				err := relay(packet, to)
-				if err != nil {
-					return Packet{}, xerrors.Errorf("could not relay: %v", err)
-				}
-			}
-		}
-	}
-
 	var wg sync.WaitGroup
 	wg.Add(len(streams))
 	for _, stream := range streams {
@@ -394,7 +345,7 @@ func (r rpc) createOrchestrator(ctx context.Context,
 			defer wg.Done()
 			decoder := gob.NewDecoder(stream)
 			for {
-				packet, err := receive(decoder)
+				packet, err := o.listen(decoder)
 				if err != nil {
 					if strings.Contains(err.Error(), network.ErrReset.Error()) {
 						return
@@ -423,13 +374,12 @@ func (r rpc) createParticipant(stream network.Stream) participant {
 	encoder := gob.NewEncoder(stream)
 	decoder := gob.NewDecoder(stream)
 
-	receive := func() (Packet, error) {
-		var packet Packet
-		err := decoder.Decode(&packet)
-		if err != nil {
-			return Packet{}, xerrors.Errorf("could not decode packet: %v", err)
-		}
-		return packet, nil
+	p := participant{
+		logger: r.logger.With().Stringer("participant", xid.New()).Logger(),
+		myAddr: r.mino.myAddr,
+		rpc:    r,
+		out:    encoder,
+		in:     make(chan Packet),
 	}
 
 	done := make(chan any)
@@ -449,13 +399,12 @@ func (r rpc) createParticipant(stream network.Stream) participant {
 		close(done)
 	}()
 
-	in := make(chan Packet)
 	go func() {
 		for {
-			packet, err := receive()
+			packet, err := p.listen(decoder)
 			if err != nil {
 				if strings.Contains(err.Error(), network.ErrReset.Error()) {
-					close(in)
+					close(p.in)
 					return
 				}
 				r.logger.Error().Err(err).Msg("message dropped")
@@ -464,16 +413,10 @@ func (r rpc) createParticipant(stream network.Stream) participant {
 			select {
 			case <-done:
 				return
-			case in <- packet:
+			case p.in <- packet:
 			}
 		}
 	}()
 
-	return participant{
-		logger: r.logger.With().Stringer("participant", xid.New()).Logger(),
-		myAddr: r.mino.myAddr,
-		rpc:    r,
-		out:    encoder,
-		in:     in,
-	}
+	return p
 }

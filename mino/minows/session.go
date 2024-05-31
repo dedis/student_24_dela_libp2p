@@ -35,44 +35,93 @@ type orchestrator struct {
 }
 
 func (o orchestrator) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
-	send := func(addr mino.Address) error {
-		var unwrapped address
-		switch a := addr.(type) {
-		case address:
-			unwrapped = a
-		case orchestratorAddr:
-			unwrapped = a.address
-		default:
-			return xerrors.Errorf("%v: %T", ErrWrongAddressType, addr)
-		}
-
-		encoder, ok := o.outs[unwrapped.identity]
-		if !ok {
-			return xerrors.Errorf("%v: %v", ErrNotPlayer, addr)
-		}
-		src, err := o.myAddr.MarshalText()
-		if err != nil {
-			return xerrors.Errorf("could not marshal address: %v", err)
-		}
-		payload, err := msg.Serialize(o.rpc.context)
-		if err != nil {
-			return xerrors.Errorf("could not serialize message: %v", err)
-		}
-
-		err = encoder.Encode(&Packet{Source: src, Payload: payload})
-		if err != nil {
-			return xerrors.Errorf("could not encode packet: %v", err)
-		}
-		return nil
-	}
-
-	errs := doSend(addrs, send, msg, o.logger)
-	return errs
+	return doSend(addrs, msg, o.send, o.logger)
 }
 
 func (o orchestrator) Recv(ctx context.Context) (mino.Address, serde.Message, error) {
-	return doReceive(ctx, o.in, o.rpc.mino.GetAddressFactory(), o.rpc.factory,
-		o.rpc.context, o.logger)
+	unpack := unpacker(o.rpc.mino.GetAddressFactory(), o.rpc.factory, o.rpc.context)
+	return doReceive(ctx, o.in, unpack, o.logger)
+}
+
+func (o orchestrator) send(addr mino.Address, msg serde.Message) error {
+	var unwrapped address
+	switch a := addr.(type) {
+	case address:
+		unwrapped = a
+	case orchestratorAddr:
+		unwrapped = a.address
+	default:
+		return xerrors.Errorf("%v: %T", ErrWrongAddressType, addr)
+	}
+
+	encoder, ok := o.outs[unwrapped.identity]
+	if !ok {
+		return xerrors.Errorf("%v: %v", ErrNotPlayer, addr)
+	}
+	src, err := o.myAddr.MarshalText()
+	if err != nil {
+		return xerrors.Errorf("could not marshal address: %v", err)
+	}
+	payload, err := msg.Serialize(o.rpc.context)
+	if err != nil {
+		return xerrors.Errorf("could not serialize message: %v", err)
+	}
+
+	err = encoder.Encode(&Packet{Source: src, Payload: payload})
+	if err != nil {
+		return xerrors.Errorf("could not encode packet: %v", err)
+	}
+	return nil
+}
+
+func (o orchestrator) fetch(decoder *gob.Decoder) (Packet, mino.Address,
+	error) {
+	var forward Forward
+	err := decoder.Decode(&forward)
+	if err != nil {
+		return Packet{}, nil,
+			xerrors.Errorf("could not decode packet: %v", err)
+	}
+	dest := o.rpc.mino.GetAddressFactory().
+		FromText(forward.Destination)
+	if dest == nil {
+		return Packet{}, nil,
+			xerrors.New("could not unmarshal address")
+	}
+	return forward.Packet, dest, nil
+}
+
+func (o orchestrator) relay(packet Packet, dest address) error {
+	encoder, ok := o.outs[dest.identity]
+	if !ok {
+		return xerrors.Errorf("%v: %v", ErrNotPlayer, dest)
+	}
+	err := encoder.Encode(packet)
+	if err != nil {
+		return xerrors.Errorf("could not encode packet: %v", err)
+	}
+	o.logger.Debug().Stringer("to", dest).Msgf("relayed packet")
+	return nil
+}
+
+func (o orchestrator) listen(decoder *gob.Decoder) (Packet, error) {
+	for {
+		packet, dest, err := o.fetch(decoder)
+		if err != nil {
+			return Packet{}, xerrors.Errorf("could not receive: %v", err)
+		}
+		switch to := dest.(type) {
+		case orchestratorAddr:
+			if o.myAddr.Equal(to) {
+				return packet, nil
+			}
+		case address:
+			err := o.relay(packet, to)
+			if err != nil {
+				return Packet{}, xerrors.Errorf("could not relay: %v", err)
+			}
+		}
+	}
 }
 
 type participant struct {
@@ -86,57 +135,67 @@ type participant struct {
 }
 
 func (p participant) Send(msg serde.Message, addrs ...mino.Address) <-chan error {
-	send := func(addr mino.Address) error {
-		switch addr.(type) {
-		case address:
-		case orchestratorAddr:
-		default:
-			return xerrors.Errorf("%v: %T", ErrWrongAddressType, addr)
-		}
-
-		src, err := p.myAddr.MarshalText()
-		if err != nil {
-			return xerrors.Errorf("could not marshal address: %v", err)
-		}
-		payload, err := msg.Serialize(p.rpc.context)
-		if err != nil {
-			return xerrors.Errorf("could not serialize message: %v", err)
-		}
-		dest, err := addr.MarshalText()
-		if err != nil {
-			return xerrors.Errorf("could not marshal address: %v", err)
-		}
-
-		// Send to orchestrator to relay to the destination participant
-		forward := Forward{
-			Packet:      Packet{Source: src, Payload: payload},
-			Destination: dest,
-		}
-		err = p.out.Encode(&forward)
-		if err != nil {
-			return xerrors.Errorf("could not encode packet: %v", err)
-		}
-		return nil
-	}
-
-	errs := doSend(addrs, send, msg, p.logger)
-	return errs
+	return doSend(addrs, msg, p.send, p.logger)
 }
 
 func (p participant) Recv(ctx context.Context) (mino.Address, serde.Message, error) {
-	return doReceive(ctx, p.in, p.rpc.mino.GetAddressFactory(),
-		p.rpc.factory, p.rpc.context, p.logger)
+	unpack := unpacker(p.rpc.mino.GetAddressFactory(), p.rpc.factory, p.rpc.context)
+	return doReceive(ctx, p.in, unpack, p.logger)
 }
 
-func doSend(addrs []mino.Address, send func(addr mino.Address) error,
-	msg serde.Message, logger zerolog.Logger) chan error {
+func (p participant) send(addr mino.Address, msg serde.Message) error {
+	switch addr.(type) {
+	case address:
+	case orchestratorAddr:
+	default:
+		return xerrors.Errorf("%v: %T", ErrWrongAddressType, addr)
+	}
+
+	src, err := p.myAddr.MarshalText()
+	if err != nil {
+		return xerrors.Errorf("could not marshal address: %v", err)
+	}
+	payload, err := msg.Serialize(p.rpc.context)
+	if err != nil {
+		return xerrors.Errorf("could not serialize message: %v", err)
+	}
+	dest, err := addr.MarshalText()
+	if err != nil {
+		return xerrors.Errorf("could not marshal address: %v", err)
+	}
+
+	// Send to orchestrator to relay to the destination participant
+	forward := Forward{
+		Packet:      Packet{Source: src, Payload: payload},
+		Destination: dest,
+	}
+	err = p.out.Encode(&forward)
+	if err != nil {
+		return xerrors.Errorf("could not encode packet: %v", err)
+	}
+	return nil
+}
+
+func (p participant) listen(decoder *gob.Decoder) (Packet, error) {
+	var packet Packet
+	err := decoder.Decode(&packet)
+	if err != nil {
+		return Packet{}, xerrors.Errorf("could not decode packet: %v", err)
+	}
+	return packet, nil
+}
+
+type sendFn func(addr mino.Address, msg serde.Message) error
+
+func doSend(addrs []mino.Address, msg serde.Message, send sendFn,
+	logger zerolog.Logger) chan error {
 	errs := make(chan error, len(addrs))
 	var wg sync.WaitGroup
 	wg.Add(len(addrs))
 	for _, addr := range addrs {
 		go func(addr mino.Address) {
 			defer wg.Done()
-			err := send(addr)
+			err := send(addr, msg)
 			if err != nil {
 				errs <- xerrors.Errorf("could not send to %v: %v", addr, err)
 				logger.Warn().Err(err).Msgf("could not send %T to %v", msg, addr)
@@ -153,10 +212,11 @@ func doSend(addrs []mino.Address, send func(addr mino.Address) error,
 	return errs
 }
 
-func doReceive(ctx context.Context, in chan Packet,
-	af mino.AddressFactory, f serde.Factory, c serde.Context,
-	logger zerolog.Logger) (mino.Address, serde.Message, error) {
-	unpack := func(packet Packet) (mino.Address, serde.Message, error) {
+type unpackFn func(packet Packet) (mino.Address, serde.Message, error)
+
+func unpacker(af mino.AddressFactory, f serde.Factory,
+	c serde.Context) unpackFn {
+	return func(packet Packet) (mino.Address, serde.Message, error) {
 		src := af.FromText(packet.Source)
 		if src == nil {
 			return nil, nil, xerrors.New("could not unmarshal address")
@@ -167,7 +227,10 @@ func doReceive(ctx context.Context, in chan Packet,
 		}
 		return src, msg, nil
 	}
+}
 
+func doReceive(ctx context.Context, in chan Packet,
+	unpack unpackFn, logger zerolog.Logger) (mino.Address, serde.Message, error) {
 	select {
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()

@@ -145,7 +145,7 @@ func (f addressFactory) FromText(text []byte) mino.Address {
 	var addr mino.Address
 	if len(parts) == 2 {
 		addr, err = newAddress(location, identity)
-	} else {
+	} else if parts[2] == "o" {
 		addr, err = newOrchestratorAddr(location, identity)
 	}
 	if err != nil {
