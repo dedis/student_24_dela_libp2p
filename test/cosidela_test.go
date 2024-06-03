@@ -49,6 +49,9 @@ import (
 	"golang.org/x/xerrors"
 )
 
+const minoGRPC = "grpc"
+const minoWS = "ws"
+
 const certKeyName = "cert.key"
 const privateKeyFile = "private.key"
 
@@ -88,7 +91,7 @@ func newDelaNode(t require.TestingT, path string, port int, kind string) dela {
 	// mino
 	var onet mino.Mino
 	switch kind {
-	case "grpc":
+	case minoGRPC:
 		router := tree.NewRouter(minogrpc.NewAddressFactory())
 		addr := minogrpc.ParseAddress("127.0.0.1", uint16(port))
 
@@ -109,7 +112,7 @@ func newDelaNode(t require.TestingT, path string, port int, kind string) dela {
 
 		onet, err = minogrpc.NewMinogrpc(addr, nil, router, opts...)
 		require.NoError(t, err)
-	case "ws":
+	case minoWS:
 		listen, err := ma.NewMultiaddr("/ip4/127.0.0.1/tcp/0/ws")
 		require.NoError(t, err)
 
@@ -208,25 +211,27 @@ func newDelaNode(t require.TestingT, path string, port int, kind string) dela {
 
 // Setup implements dela. It creates the roster, shares the certificate, and
 // create an new chain.
-func (c cosiDelaNode) Setup(delas ...dela) {
+func (c cosiDelaNode) Setup(kind string, delas ...dela) {
 	// share the certificates
-	joinable, ok := c.onet.(minogrpc.Joinable)
-	require.True(c.t, ok)
-
-	addrURL, err := url.Parse(c.onet.GetAddress().String())
-	require.NoError(c.t, err, addrURL)
-
-	token := joinable.GenerateToken(time.Hour)
-
-	certHash, err := joinable.GetCertificateStore().Hash(joinable.GetCertificateChain())
-	require.NoError(c.t, err)
-
-	for _, dela := range delas {
-		otherJoinable, ok := dela.GetMino().(minogrpc.Joinable)
+	if kind == minoGRPC {
+		joinable, ok := c.onet.(minogrpc.Joinable)
 		require.True(c.t, ok)
 
-		err = otherJoinable.Join(addrURL, token, certHash)
+		addrURL, err := url.Parse(c.onet.GetAddress().String())
+		require.NoError(c.t, err, addrURL)
+
+		token := joinable.GenerateToken(time.Hour)
+
+		certHash, err := joinable.GetCertificateStore().Hash(joinable.GetCertificateChain())
 		require.NoError(c.t, err)
+
+		for _, dela := range delas {
+			otherJoinable, ok := dela.GetMino().(minogrpc.Joinable)
+			require.True(c.t, ok)
+
+			err = otherJoinable.Join(addrURL, token, certHash)
+			require.NoError(c.t, err)
+		}
 	}
 
 	type extendedService interface {
@@ -259,7 +264,7 @@ func (c cosiDelaNode) Setup(delas ...dela) {
 	roster := authority.New(minoAddrs, pubKeys)
 
 	// create chain
-	err = extended.Setup(context.Background(), roster)
+	err := extended.Setup(context.Background(), roster)
 	require.NoError(c.t, err)
 }
 

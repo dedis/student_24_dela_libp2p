@@ -1,10 +1,12 @@
 package minows
 
 import (
+	"fmt"
 	ma "github.com/multiformats/go-multiaddr"
 	"go.dedis.ch/dela/cli"
 	"go.dedis.ch/dela/cli/node"
 	"go.dedis.ch/dela/core/store/kv"
+	"go.dedis.ch/dela/mino"
 	"go.dedis.ch/dela/mino/minows/key"
 	"golang.org/x/xerrors"
 )
@@ -25,19 +27,24 @@ func (c controller) SetCommands(builder node.Builder) {
 	builder.SetStartFlags(
 		cli.StringFlag{
 			Name: flagListen,
-			Usage: "set the address to listen on (default all interfaces, " +
+			Usage: "Set the address to listen on (default all interfaces, " +
 				"random port)",
 			Required: false,
 			Value:    "/ip4/0.0.0.0/tcp/0",
 		},
 		cli.StringFlag{
 			Name: flagPublic,
-			Usage: "set the publicly reachable address (" +
+			Usage: "Set the publicly reachable address (" +
 				"default listen address)",
 			Required: false,
 			Value:    "",
 		},
 	)
+
+	cmd := builder.SetCommand("list")
+	sub := cmd.SetSubCommand("address")
+	sub.SetDescription("Print this node's full dialable address")
+	sub.SetAction(builder.MakeAction(addressAction{}))
 }
 
 func (c controller) OnStart(flags cli.Flags, inj node.Injector) error {
@@ -83,6 +90,22 @@ func (c controller) OnStop(inj node.Injector) error {
 	err = m.stop()
 	if err != nil {
 		return xerrors.Errorf("could not stop mino: %v", err)
+	}
+	return nil
+}
+
+// - implements node.ActionTemplate
+type addressAction struct{}
+
+func (a addressAction) Execute(req node.Context) error {
+	var m mino.Mino
+	err := req.Injector.Resolve(&m)
+	if err != nil {
+		return xerrors.Errorf("could not resolve: %v", err)
+	}
+	_, err = fmt.Fprint(req.Out, m.GetAddress())
+	if err != nil {
+		return err
 	}
 	return nil
 }

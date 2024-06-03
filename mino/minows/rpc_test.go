@@ -10,15 +10,16 @@ import (
 )
 
 func Test_rpc_Call(t *testing.T) {
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
-	r := mustCreateRPC(t, initiator, "test", testHandler{})
+	r := mustCreateRPC(t, initiator, "test", handler)
 
 	const addrPlayer = "/ip4/127.0.0.1/tcp/6002/ws"
 	player, stop := mustCreateMinows(t, addrPlayer, addrPlayer)
 	defer stop()
-	mustCreateRPC(t, player, "test", testHandler{})
+	mustCreateRPC(t, player, "test", handler)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -35,13 +36,39 @@ func Test_rpc_Call(t *testing.T) {
 	require.Equal(t, fake.Message{}, msg)
 	_, ok := <-responses
 	require.False(t, ok)
+	require.Equal(t, []mino.Address{initiator.GetAddress()}, handler.from)
 }
 
-func Test_rpc_Call_NoPlayers(t *testing.T) {
+func Test_rpc_Call_ToSelf(t *testing.T) {
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
-	r := mustCreateRPC(t, initiator, "test", testHandler{})
+	r := mustCreateRPC(t, initiator, "test", handler)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := fake.Message{}
+	players := mino.NewAddresses(initiator.GetAddress())
+
+	responses, err := r.Call(ctx, req, players)
+	require.NoError(t, err)
+	resp := <-responses
+	from := resp.GetFrom().(address)
+	require.Equal(t, initiator.GetAddress(), from)
+	msg, err := resp.GetMessageOrError()
+	require.NoError(t, err)
+	require.Equal(t, fake.Message{}, msg)
+	_, ok := <-responses
+	require.False(t, ok)
+}
+
+func Test_rpc_Call_NoPlayers(t *testing.T) {
+	handler := &echoHandler{}
+	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
+	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
+	defer stop()
+	r := mustCreateRPC(t, initiator, "test", handler)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -49,19 +76,20 @@ func Test_rpc_Call_NoPlayers(t *testing.T) {
 	players := mino.NewAddresses()
 
 	_, err := r.Call(ctx, req, players)
-	require.ErrorContains(t, err, "no players")
+	require.Nil(t, err)
 }
 
 func Test_rpc_Call_WrongAddressType(t *testing.T) {
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
-	r := mustCreateRPC(t, initiator, "test", testHandler{})
+	r := mustCreateRPC(t, initiator, "test", handler)
 
 	const addrPlayer = "/ip4/127.0.0.1/tcp/6002/ws"
 	player, stop := mustCreateMinows(t, addrPlayer, addrPlayer)
 	defer stop()
-	mustCreateRPC(t, player, "test", testHandler{})
+	mustCreateRPC(t, player, "test", handler)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -73,15 +101,16 @@ func Test_rpc_Call_WrongAddressType(t *testing.T) {
 }
 
 func Test_rpc_Call_DiffNamespace(t *testing.T) {
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
-	r := mustCreateRPC(t, initiator, "test", testHandler{})
+	r := mustCreateRPC(t, initiator, "test", handler)
 
 	const addrPlayer = "/ip4/127.0.0.1/tcp/6002/ws"
 	player, stop := mustCreateMinows(t, addrPlayer, addrPlayer)
 	defer stop()
-	mustCreateRPC(t, player.WithSegment("segment"), "test", testHandler{})
+	mustCreateRPC(t, player.WithSegment("segment"), "test", handler)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -95,42 +124,21 @@ func Test_rpc_Call_DiffNamespace(t *testing.T) {
 	require.Equal(t, player.GetAddress(), from)
 	_, err = resp.GetMessageOrError()
 	require.ErrorContains(t, err, "protocols not supported")
-	_, ok := <-responses
-	require.False(t, ok)
-}
-
-func Test_rpc_Call_SelfDial(t *testing.T) {
-	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
-	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
-	defer stop()
-	r := mustCreateRPC(t, initiator, "test", testHandler{})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	req := fake.Message{}
-	players := mino.NewAddresses(initiator.GetAddress())
-
-	responses, err := r.Call(ctx, req, players)
-	require.NoError(t, err)
-	resp := <-responses
-	from := resp.GetFrom().(address)
-	require.Equal(t, initiator.GetAddress(), from)
-	_, err = resp.GetMessageOrError()
-	require.ErrorContains(t, err, "dial to self attempted")
-	_, ok := <-responses
-	require.False(t, ok)
+	_, open := <-responses
+	require.False(t, open)
 }
 
 func Test_rpc_Call_ContextCancelled(t *testing.T) {
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
-	r := mustCreateRPC(t, initiator, "test", testHandler{})
+	r := mustCreateRPC(t, initiator, "test", handler)
 
 	const addrPlayer = "/ip4/127.0.0.1/tcp/6002/ws"
 	player, stop := mustCreateMinows(t, addrPlayer, addrPlayer)
 	defer stop()
-	mustCreateRPC(t, player, "test", testHandler{})
+	mustCreateRPC(t, player, "test", handler)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	req := fake.Message{}
@@ -144,15 +152,16 @@ func Test_rpc_Call_ContextCancelled(t *testing.T) {
 }
 
 func Test_rpc_Stream(t *testing.T) {
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
-	r := mustCreateRPC(t, initiator, "test", testHandler{})
+	r := mustCreateRPC(t, initiator, "test", handler)
 
 	const addrPlayer = "/ip4/127.0.0.1/tcp/6002/ws"
 	player, stop := mustCreateMinows(t, addrPlayer, addrPlayer)
 	defer stop()
-	mustCreateRPC(t, player, "test", testHandler{})
+	mustCreateRPC(t, player, "test", handler)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -164,11 +173,29 @@ func Test_rpc_Stream(t *testing.T) {
 	require.NotNil(t, receiver)
 }
 
-func Test_rpc_Stream_NoPlayers(t *testing.T) {
+func Test_rpc_Stream_ToSelf(t *testing.T) {
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
-	r := mustCreateRPC(t, initiator, "test", testHandler{})
+	r := mustCreateRPC(t, initiator, "test", handler)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	players := mino.NewAddresses(initiator.GetAddress())
+
+	sender, receiver, err := r.Stream(ctx, players)
+	require.NoError(t, err)
+	require.NotNil(t, sender)
+	require.NotNil(t, receiver)
+}
+
+func Test_rpc_Stream_NoPlayers(t *testing.T) {
+	handler := &echoHandler{}
+	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
+	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
+	defer stop()
+	r := mustCreateRPC(t, initiator, "test", handler)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -179,10 +206,11 @@ func Test_rpc_Stream_NoPlayers(t *testing.T) {
 }
 
 func Test_rpc_Stream_WrongAddressType(t *testing.T) {
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
-	r := mustCreateRPC(t, initiator, "test", testHandler{})
+	r := mustCreateRPC(t, initiator, "test", handler)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -192,29 +220,16 @@ func Test_rpc_Stream_WrongAddressType(t *testing.T) {
 	require.ErrorContains(t, err, "wrong address type")
 }
 
-func Test_rpc_Stream_SelfDial(t *testing.T) {
-	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
-	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
-	defer stop()
-	r := mustCreateRPC(t, initiator, "test", testHandler{})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	players := mino.NewAddresses(initiator.GetAddress())
-
-	_, _, err := r.Stream(ctx, players)
-	require.ErrorContains(t, err, "dial to self attempted")
-}
-
 func Test_rpc_Stream_ContextCancelled(t *testing.T) {
+	handler := &echoHandler{}
 	const addrInitiator = "/ip4/127.0.0.1/tcp/6001/ws"
 	initiator, stop := mustCreateMinows(t, addrInitiator, addrInitiator)
 	defer stop()
-	r := mustCreateRPC(t, initiator, "test", testHandler{})
+	r := mustCreateRPC(t, initiator, "test", handler)
 	const addrPlayer = "/ip4/127.0.0.1/tcp/6002/ws"
 	player, stop := mustCreateMinows(t, addrPlayer, addrPlayer)
 	defer stop()
-	mustCreateRPC(t, player, "test", testHandler{})
+	mustCreateRPC(t, player, "test", handler)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	players := mino.NewAddresses(player.GetAddress())
@@ -224,21 +239,30 @@ func Test_rpc_Stream_ContextCancelled(t *testing.T) {
 	require.Error(t, err)
 }
 
-// testHandler implements mino.Handler
-// Captures received requests for test assertions and
+// echoHandler implements mino.Handler
+// Captures senders of received messages for test assertions and
 // echos back the same message
-type testHandler struct{}
+// - implements mino.Handler
+type echoHandler struct {
+	from     []mino.Address
+	messages []serde.Message
+}
 
-func (e testHandler) Process(req mino.Request) (resp serde.Message, err error) {
+func (h *echoHandler) Process(req mino.Request) (resp serde.Message,
+	err error) {
+	h.from = append(h.from, req.Address)
+	h.messages = append(h.messages, req.Message)
 	return req.Message, nil
 }
 
-func (e testHandler) Stream(out mino.Sender, in mino.Receiver) error {
+func (h *echoHandler) Stream(out mino.Sender, in mino.Receiver) error {
 	for {
 		from, msg, err := in.Recv(context.Background())
 		if err != nil {
 			return err
 		}
+		h.from = append(h.from, from)
+		h.messages = append(h.messages, msg)
 		err = <-out.Send(msg, from)
 		if err != nil {
 			return err

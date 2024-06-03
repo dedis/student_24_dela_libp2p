@@ -33,7 +33,7 @@ type minows struct {
 
 // NewMinows creates a new Minows instance that starts listening.
 // listen: listening address in multiaddress format,
-// e.g. /ip4/0.0.0.0/tcp/0/ or /ip4/127.0.0.1/tcp/80/ws
+// e.g. /ip4/127.0.0.1/tcp/80/ws
 // public: public dial-able address in multiaddress format,
 // e.g. /dns4/p2p-1.c4dt.dela.org/tcp/443/wss
 // `public` can be nil and will be determined
@@ -51,7 +51,7 @@ func NewMinows(listen, public ma.Multiaddr, key crypto.PrivKey) (mino.Mino,
 	}
 	myAddr, err := newAddress(public, h.ID())
 	if err != nil {
-		return nil, xerrors.Errorf("could not create public address: %v", err)
+		return nil, xerrors.Errorf("could not create address: %v", err)
 	}
 
 	return &minows{
@@ -78,11 +78,12 @@ func (m *minows) WithSegment(segment string) mino.Mino {
 	}
 
 	return &minows{
+		logger:   m.logger,
 		myAddr:   m.myAddr,
 		segments: append(m.segments, segment),
 		host:     m.host,
 		rpcs:     make(map[string]any),
-		factory:  m.factory,
+		factory:  addressFactory{},
 	}
 }
 
@@ -108,15 +109,14 @@ func (m *minows) CreateRPC(name string, h mino.Handler, f serde.Factory) (mino.R
 	r := &rpc{
 		logger:  m.logger.With().Str("rpc", uri).Logger(),
 		uri:     uri,
+		handler: h,
 		mino:    m,
 		factory: f,
 		context: json.NewContext(),
 	}
 
-	pid, handler := protocol.ID(uri+pathCall), r.createCallHandler(h)
-	m.host.SetStreamHandler(pid, handler)
-	pid, handler = protocol.ID(uri+pathStream), r.createStreamHandler(h)
-	m.host.SetStreamHandler(pid, handler)
+	m.host.SetStreamHandler(protocol.ID(uri+pathCall), r.handleCall)
+	m.host.SetStreamHandler(protocol.ID(uri+pathStream), r.handleStream)
 	m.rpcs[name] = nil
 
 	return r, nil

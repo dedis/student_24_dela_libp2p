@@ -160,16 +160,49 @@ func Test_address_MarshalText(t *testing.T) {
 		want []byte
 	}{
 		"all interface": {
-			a:    mustCreateAddress(t, addrAllInterface, pid1),
-			want: []byte("/ip4/0.0.0.0/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
+			a: mustCreateAddress(t, addrAllInterface, pid1),
+			want: []byte("/ip4/0.0.0.0/tcp/80" +
+				":QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
 		},
 		"localhost": {
-			a:    mustCreateAddress(t, addrLocalhost, pid2),
-			want: []byte("/ip4/127.0.0.1/tcp/80/p2p/QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"),
+			a: mustCreateAddress(t, addrLocalhost, pid2),
+			want: []byte("/ip4/127.0.0.1/tcp/80" +
+				":QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"),
 		},
 		"hostname": {
-			a:    mustCreateAddress(t, addrHostname, pid1),
-			want: []byte("/dns4/example.com/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
+			a: mustCreateAddress(t, addrHostname, pid1),
+			want: []byte("/dns4/example.com/tcp/80" +
+				":QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
+		},
+	}
+	for name, tt := range tests {
+		tt := tt
+		t.Run(name, func(t *testing.T) {
+			result, err := tt.a.MarshalText()
+
+			require.NoError(t, err)
+			require.Equal(t, tt.want, result)
+		})
+	}
+}
+
+func Test_orchestratorAddr_MarshalText(t *testing.T) {
+	const pid1 = "QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"
+	const addrLocalhost = "/ip4/127.0.0.1/tcp/80"
+	const addrHostname = "/dns4/example.com/tcp/80"
+	tests := map[string]struct {
+		a    orchestratorAddr
+		want []byte
+	}{
+		"localhost": {
+			a: mustCreateOrchestratorAddr(t, addrLocalhost, pid1),
+			want: []byte("/ip4/127.0.0.1/tcp/80" +
+				":QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU:o"),
+		},
+		"hostname": {
+			a: mustCreateOrchestratorAddr(t, addrHostname, pid1),
+			want: []byte("/dns4/example.com/tcp/80" +
+				":QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU:o"),
 		},
 	}
 	for name, tt := range tests {
@@ -191,19 +224,32 @@ func Test_addressFactory_FromText(t *testing.T) {
 	const addrHostname = "/dns4/example.com/tcp/80"
 	tests := map[string]struct {
 		args []byte
-		want address
+		want mino.Address
 	}{
 		"all interface": {
-			args: []byte("/ip4/0.0.0.0/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
+			args: []byte("/ip4/0.0.0.0/tcp/80:" +
+				"QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
 			want: mustCreateAddress(t, addrAllInterface, pid1),
 		},
 		"localhost": {
-			args: []byte("/ip4/127.0.0.1/tcp/80/p2p/QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"),
+			args: []byte("/ip4/127.0.0.1/tcp/80:" +
+				"QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"),
 			want: mustCreateAddress(t, addrLocalhost, pid2),
 		},
 		"hostname": {
-			args: []byte("/dns4/example.com/tcp/80/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
+			args: []byte("/dns4/example.com/tcp/80:" +
+				"QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
 			want: mustCreateAddress(t, addrHostname, pid1),
+		},
+		"orchestrator - localhost": {
+			args: []byte("/ip4/127.0.0.1/tcp/80:" +
+				"QmVt9t5Tk2uEoA4CDbKNCVxqrut8UXmWHXvFZ8wFZ3ghhv"),
+			want: mustCreateAddress(t, addrLocalhost, pid2),
+		},
+		"orchestrator - hostname": {
+			args: []byte("/dns4/example.com/tcp/80" +
+				":QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU:o"),
+			want: mustCreateOrchestratorAddr(t, addrHostname, pid1),
 		},
 	}
 	factory := addressFactory{}
@@ -226,7 +272,7 @@ func Test_addressFactory_FromText_Invalid(t *testing.T) {
 			args: []byte("invalid"),
 		},
 		"missing location": {
-			args: []byte("/p2p/QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
+			args: []byte(":QmaD31nEzFGwD8dK96UFWHtTYTqYJgHLMYSFz4W4Hm2WCU"),
 		},
 		"missing identity": {
 			args: []byte(addrLocalhost),
@@ -242,6 +288,13 @@ func Test_addressFactory_FromText_Invalid(t *testing.T) {
 			require.Nil(t, result)
 		})
 	}
+}
+
+func mustCreateOrchestratorAddr(t *testing.T, location, identity string) orchestratorAddr {
+	addr, err := newOrchestratorAddr(mustCreateMultiaddress(t, location),
+		mustCreatePeerID(t, identity))
+	require.NoError(t, err)
+	return addr
 }
 
 func mustCreateAddress(t *testing.T, location, identity string) address {
